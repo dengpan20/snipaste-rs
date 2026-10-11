@@ -1,0 +1,80 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/app",
+    "crates/core",
+    "crates/render",
+    "crates/capture",
+    "crates/platform",
+]
+
+[workspace.package]
+version = "0.2.4"
+edition = "2021"
+license = "MIT"
+description = "跨端截图标注工具（Snipaste 复刻）"
+
+[workspace.dependencies]
+# ---- 窗口 / 事件 ----
+winit = "0.30"
+
+# ---- UI / 渲染 ----
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-winit = "0.36"
+# app 层要自己建 surface / render pass，所以直接依赖 wgpu，
+# 而不是绕道 egui_wgpu::wgpu 这个 re-export —— 版本跟 egui-wgpu 保持一致。
+wgpu = "30"
+pollster = "0.4"
+
+# ---- 平台能力 ----
+global-hotkey = "0.8"
+tray-icon = "0.26"
+arboard = "3"
+
+# ---- 图像 / 编解码 ----
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rqrr = { version = "0.11", default-features = false }
+
+# ---- 基础设施 ----
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+thiserror = "2"
+
+# ---- 工作区内 crate ----
+snipaste-core = { path = "crates/core" }
+snipaste-render = { path = "crates/render" }
+snipaste-capture = { path = "crates/capture" }
+snipaste-platform = { path = "crates/platform" }
+
+# 开发时依赖本身用 O3 编译（避免 egui / wgpu 在 debug 下卡顿），
+# 自己的代码保持 O1。
+#
+# ⚠️ incremental 必须关（本机 Windows 特有问题）
+#   症状一：每次构建刷 `error deleting lock file for incremental compilation
+#           session directory ...: 拒绝访问。(os error 5)`
+#   症状二：并发跑两个 cargo 命令（如同一目录下 clippy 与 test）争抢 target/
+#           文件锁 → 增量缓存损坏 → 后续 `error: the compiler unexpectedly
+#           panicked. This is a bug.`（rustc ICE）
+#   注意：**不能用 `.cargo/config.toml` 的 `[env] CARGO_INCREMENTAL = "0"` 来关**。
+#   `CARGO_INCREMENTAL` 是 cargo 进程启动时读取的变量，`[env]` 表生效太晚，
+#   rustc 命令行里仍会带上 `-C incremental=...`（已实测确认）。
+#   只有 profile 里的 `incremental = false` 才是 cargo 保证生效的写法。
+[profile.dev]
+opt-level = 1
+incremental = false
+
+[profile.test]
+incremental = false
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+# 保留 unwind：单个窗口 panic 不应导致整个常驻进程退出
+panic = "unwind"

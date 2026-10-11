@@ -1,0 +1,32 @@
+[package]
+name = "snipaste-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "平台适配层：全局热键、开机自启、剪贴板、权限检查。唯一的平台差异收敛点。"
+
+[dependencies]
+snipaste-core.workspace = true
+global-hotkey.workspace = true
+arboard.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+cc = "1"
+
+# 说明：本阶段的开机自启通过调用系统自带的 `reg.exe`（Windows）与写
+# LaunchAgent plist（macOS）实现，均为用户级操作、无需管理员权限，因此
+# 开机自启这条路**不**需要 `windows-sys`。
+#
+# 但"取鼠标下的窗口矩形"必须要 Win32（`WindowFromPoint` / DWM 扩展边框），
+# 这是 platform 层唯一无法绕开的原生调用，所以按目标平台单独引入。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls_Dialogs",
+] }

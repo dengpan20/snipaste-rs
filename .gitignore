@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# 本地捕获的字体（体积大，不纳入版本库；见 crates/render/src/fonts.rs）
+/assets/fonts/*.ttf
+/assets/fonts/*.otf
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时产物
+/dist
+/tmp
+
+# 本地工具记录与配置
+/.workbuddy/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc

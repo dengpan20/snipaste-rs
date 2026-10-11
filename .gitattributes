@@ -1,0 +1,2 @@
+# Normalize source and scripts to LF for consistent Windows/macOS checkouts.
+* text=auto eol=lf

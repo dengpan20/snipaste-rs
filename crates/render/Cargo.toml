@@ -1,0 +1,15 @@
+[package]
+name = "snipaste-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "渲染层：egui 主题、CJK 字体注册、标注图元三角化、马赛克管线。"
+
+[dependencies]
+snipaste-core.workspace = true
+egui.workspace = true
+image.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+snipaste-platform.workspace = true

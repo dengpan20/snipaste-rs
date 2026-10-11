@@ -1,0 +1,25 @@
+name: macOS Apple Silicon
+on:
+  workflow_dispatch:
+  push:
+    paths: ['crates/**', 'Cargo.*', '.cargo/**', 'scripts/*macos*', 'packaging/macos/**', '.github/workflows/macos-arm64.yml']
+  pull_request:
+    paths: ['crates/**', 'Cargo.*', '.cargo/**', 'scripts/*macos*', 'packaging/macos/**', '.github/workflows/macos-arm64.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+      - name: Compile native bridge, test, package arm64 app
+        run: bash scripts/build-macos.sh --verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snipaste-rs-macos-arm64
+          path: dist/snipaste-rs-*-macos-arm64.zip
+          if-no-files-found: error

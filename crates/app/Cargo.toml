@@ -1,0 +1,37 @@
+[package]
+name = "snipaste-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "应用层：事件循环、状态机、托盘、遮罩窗口与贴图窗口管理。"
+
+[[bin]]
+name = "snipaste-rs"
+path = "src/main.rs"
+
+[dependencies]
+snipaste-core.workspace = true
+snipaste-render.workspace = true
+snipaste-capture.workspace = true
+snipaste-platform.workspace = true
+
+winit.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+tray-icon.workspace = true
+# app 层直接读 GlobalHotKeyEvent 的全局回调（它是 crate 级的静态通道，
+# 不能只留在 platform 层里），因此这里也声明依赖，而不是靠 platform 转手。
+global-hotkey.workspace = true
+# 图片解码：托盘图标与「另存为」的 PNG/JPEG 编码都走它
+image.workspace = true
+rqrr.workspace = true
+
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+qrcode = { version = "0.14", default-features = false }

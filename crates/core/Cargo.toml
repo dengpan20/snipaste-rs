@@ -1,0 +1,10 @@
+[package]
+name = "snipaste-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "纯逻辑领域模型：几何、标注、文档、撤销栈。不含任何平台相关代码。"
+
+[dependencies]
+# 刻意保持零依赖：core 层必须是纯函数式逻辑，可在任意平台、
+# 甚至在无操作系统的环境下编译与测试。

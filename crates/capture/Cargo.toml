@@ -1,0 +1,18 @@
+[package]
+name = "snipaste-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "屏幕捕获层：后端抽象、会话预热、帧缓冲池、多屏并行取值。"
+
+[dependencies]
+snipaste-core.workspace = true
+log.workspace = true
+thiserror.workspace = true
+image.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+snipaste-platform.workspace = true

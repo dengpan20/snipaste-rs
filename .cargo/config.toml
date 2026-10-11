@@ -1,0 +1,7 @@
+# Default to the current host, so a Mac checkout never selects a Windows target.
+# Windows helpers set CARGO_BUILD_TARGET=x86_64-pc-windows-gnu for the local GNU tools.
+# Mac packaging explicitly selects aarch64-apple-darwin.
+# Disable incremental builds in Cargo.toml profiles (not via [env]).
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=14.0"]

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+  <key>CFBundleDisplayName</key><string>Snipaste-RS</string>
+  <key>CFBundleName</key><string>Snipaste-RS</string>
+  <key>CFBundleExecutable</key><string>snipaste-rs</string>
+  <key>CFBundleIdentifier</key><string>io.snipaste-rs.app</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSArchitecturePriority</key><array><string>arm64</string></array>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSScreenCaptureUsageDescription</key><string>仅在你发起截图时捕获当前显示器，用于截图、取色和选区二维码识别。</string>
+</dict></plist>

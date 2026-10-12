@@ -48,7 +48,7 @@ Windows 0.2.3 在一台 3440 × 1440 显示器的测试电脑上：
 
 ## 平台与版本
 
-当前源码版本：**0.2.4**。现有 Windows 发布包版本：**0.2.3**。
+当前源码与正式发布包版本：**0.2.4**。下载见 [GitHub Releases](https://github.com/dengpan20/snipaste-rs/releases/latest)。
 
 | 平台 | 当前状态 |
 |---|---|
@@ -62,17 +62,28 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
 
 ### Windows：下载后运行
 
-1. 在本仓库的 **Releases** 页面查找 Windows 发布包：`snipaste-rs-0.2.3-win64.zip`，或独立程序 `snipaste-rs-0.2.3.exe`。
+1. 下载 [Windows 64 位便携包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.4/yingtie-0.2.4-win64.zip)，或 [独立程序](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.4/yingtie-0.2.4.exe)。
 2. 解压后运行 `snipaste-rs.exe`；独立程序可以直接运行，无需安装 Rust。
 3. 程序启动后驻留系统托盘。按 **F1** 开始截图，或从托盘菜单选择“截图”。
 
-如果 Releases 尚无附件，可以使用下方的源码构建方式。运行新版前，请先从托盘退出旧版。
+运行新版前，请先从托盘退出旧版。发布包包含使用说明和文件校验；下载校验文件见 [SHA256SUMS.txt](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.4/SHA256SUMS.txt)。
 
 **完成第一张截图：**
 
 按 F1 → 拖动选择区域 → 按 Enter 确认 → 在聊天、文档或笔记中按 **Ctrl+V** 粘贴。
 
 如 F1 已被其他软件占用，程序会尝试候选热键；菜单和截图界面显示实际生效的键。
+
+### macOS：Apple Silicon 下载后运行
+
+要求 **macOS 14 或更新版本**，以及 Apple Silicon 芯片。
+
+1. 下载 [Mac arm64 应用包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.4/yingtie-0.2.4-macos-arm64.zip)。
+2. 解压后将 **映贴.app** 移入“应用程序”，然后打开；程序驻留顶部菜单栏。
+3. 首次截图时，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中允许映贴，再退出并重新打开。
+4. 按 **⌘⇧2** → 拖动框选 → Enter 确认 → 在其他应用中按 **⌘V** 粘贴。
+
+发布包由 GitHub Apple Silicon CI 构建，使用 **ad-hoc 临时签名**，尚未进行 Developer ID 签名和 Apple 公证。首次打开若系统拦截，可在“系统设置 → 隐私与安全性”中选择“仍要打开”。更新后若旧权限身份失效，请按 [Mac 指南](docs/macos.md) 刷新映贴的屏幕录制权限。
 
 ### macOS：Apple Silicon 本机构建
 
@@ -84,7 +95,7 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
    xcode-select --install
    ```
 
-2. 在 GitHub 点击 **Code → Download ZIP** 获取源码并解压，或使用 Releases 中的 `yingtie-0.2.4-macos-arm64-source.zip`（如已上传）。
+2. 在 GitHub 点击 **Code → Download ZIP** 获取源码并解压，或在 [Releases](https://github.com/dengpan20/snipaste-rs/releases/latest) 下载 **Source code (zip)**。
 3. 双击项目根目录的 **Build macOS.command**。也可以在项目目录运行：
 
    ```bash
@@ -149,7 +160,7 @@ cargo build --locked --release -p snipaste-app --target x86_64-pc-windows-msvc
 | `snipaste-platform` | 热键、剪贴板、窗口查询、保存、权限和自启 |
 | `snipaste-app` | 事件循环、截图界面和贴图窗口 |
 
-此前 Windows 验收通过 **142 项单元测试**，本次 macOS 验收通过 **150 项单元测试**，另有 1 项生成验收图片的任务默认忽略。Mac 可运行以下命令，执行原生桥编译、代码检查、单元测试和打包：
+0.2.4 发布时 Windows 通过 **149 项单元测试**、零告警代码检查及 release 启动 / 截图显示检查；macOS 真机记录通过 **150 项单元测试**，本次 Apple Silicon CI 原生构建亦通过。另有 1 项生成验收图片的任务默认忽略。Mac 可运行以下命令，执行原生桥编译、代码检查、单元测试和打包：
 
 ```bash
 bash scripts/build-macos.sh --verify

@@ -41,18 +41,31 @@ extern "C" {
     fn sp_display_for_cursor(out: *mut Display) -> i32;
     fn sp_cursor(x: *mut f64, y: *mut f64) -> i32;
     fn sp_window_at(x: f64, y: f64, out: *mut NativeRect) -> i32;
-    fn sp_screen_permission(request: i32) -> i32;
+    fn sp_screen_permission() -> i32;
     fn sp_open_screen_settings();
     fn sp_capture(display: u32, width: u32, height: u32, pixels: *mut u8) -> NativeImage;
     fn sp_free(pointer: *mut c_void);
     fn sp_configure_window(view: *mut c_void, overlay: i32, display: *const Display);
     fn sp_information(title: *const c_char, message: *const c_char);
+    fn sp_screen_permission_prompt(title: *const c_char, message: *const c_char);
+    fn sp_configure_menu_bar_item(item: *mut c_void);
+    fn sp_prepare_menu_bar_position(autosave_name: *const c_char);
     fn sp_save_path() -> *mut c_char;
     fn sp_chinese_font() -> *mut c_char;
     fn sp_memory(out: *mut NativeMemory) -> i32;
     fn sp_begin_capture();
     fn sp_end_capture();
     fn sp_flush_compositor();
+    fn sp_release_unused_memory() -> usize;
+    fn sp_prepare_window_preview(
+        view: *mut c_void,
+        pixels: *const u8,
+        width: u32,
+        height: u32,
+        owner: *mut c_void,
+        release: unsafe extern "C" fn(*mut c_void, *const c_void, usize),
+    ) -> i32;
+    fn sp_clear_window_preview(view: *mut c_void);
 }
 
 // One display per capture on macOS. Quartz coordinates use top-left logical
@@ -84,6 +97,13 @@ impl Display {
 }
 
 pub fn select_capture_display() -> Option<Display> {
+    // Profiling compares repeated sessions on the first measured display even
+    // if the desktop pointer moves. Ordinary capture still follows the cursor.
+    if std::env::var_os("SNIPASTE_MEMORY_PROFILE_DIR").is_some() {
+        if let Some(display) = capture_display() {
+            return Some(display);
+        }
+    }
     let mut display = Display::default();
     // SAFETY: AppKit is initialized and this is called from resumed/user_event.
     if unsafe { sp_display_for_cursor(&mut display) } == 0 {
@@ -120,12 +140,24 @@ pub fn window_under_point(point: Pos) -> Option<Rect> {
     ))
 }
 
-pub fn screen_permission(request: bool) -> bool {
-    // SAFETY: TCC preflight/request, main event-loop thread only when requesting.
-    unsafe { sp_screen_permission(i32::from(request)) != 0 }
+pub fn screen_permission() -> bool {
+    // SAFETY: read-only TCC preflight; never requests access or displays system UI.
+    unsafe { sp_screen_permission() != 0 }
 }
 pub fn open_screen_settings() {
     unsafe { sp_open_screen_settings() }
+}
+
+/// # Safety
+/// `item` must be a live NSStatusItem owned by the tray, on the AppKit main thread.
+pub unsafe fn configure_menu_bar_item(item: *mut c_void) {
+    unsafe { sp_configure_menu_bar_item(item) };
+}
+
+pub fn prepare_menu_bar_position(autosave_name: &str) {
+    if let Ok(name) = CString::new(autosave_name) {
+        unsafe { sp_prepare_menu_bar_position(name.as_ptr()) };
+    }
 }
 
 pub fn begin_capture() {
@@ -199,9 +231,55 @@ pub unsafe fn configure_window(view: *mut c_void, overlay: bool) {
     unsafe { sp_configure_window(view, i32::from(overlay), pointer) };
 }
 
+/// # Safety
+/// `view` must be a live winit AppKit NSView on the main event-loop thread.
+pub unsafe fn prepare_window_preview(
+    view: *mut c_void,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+) -> bool {
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|size| size.checked_mul(4));
+    if expected != Some(pixels.len()) || pixels.is_empty() {
+        return false;
+    }
+    // The CGImage provider owns the allocation until AppKit releases the preview.
+    // Its callback uses Rust's allocator, and also runs on every native error path.
+    unsafe extern "C" fn release(owner: *mut c_void, _: *const c_void, _: usize) {
+        unsafe { drop(Box::from_raw(owner.cast::<Vec<u8>>())) };
+    }
+    let pixels = Box::new(pixels);
+    let pointer = pixels.as_ptr();
+    let owner = Box::into_raw(pixels).cast();
+    unsafe { sp_prepare_window_preview(view, pointer, width, height, owner, release) != 0 }
+}
+
+/// # Safety
+/// `view` must be a live winit AppKit NSView on the main event-loop thread.
+pub unsafe fn clear_window_preview(view: *mut c_void) {
+    unsafe { sp_clear_window_preview(view) };
+}
+
 pub fn show_information(title: &str, message: &str) {
     if let (Ok(title), Ok(message)) = (CString::new(title), CString::new(message)) {
         unsafe { sp_information(title.as_ptr(), message.as_ptr()) };
+    }
+}
+
+/// Show the screen-recording explanation with a direct Settings action.
+/// Called on the main AppKit event-loop thread after capture permission is denied.
+pub fn show_screen_permission_prompt(app_name: &str) {
+    let title = CString::new("需要屏幕录制权限").unwrap();
+    let message = format!(
+        "点击「打开权限设置」，在「屏幕与系统音频录制」中允许 {app_name}。\n\
+        如果列表中没有该应用，点击 + 添加 /Applications/{app_name}.app。\n\
+        授权后从菜单栏退出应用，再重新打开。"
+    );
+    if let Ok(message) = CString::new(message) {
+        // SAFETY: live NUL-terminated strings remain valid for the modal alert.
+        unsafe { sp_screen_permission_prompt(title.as_ptr(), message.as_ptr()) };
     }
 }
 
@@ -233,6 +311,11 @@ pub fn memory_usage() -> Option<crate::memory::Usage> {
     })
 }
 
+/// Return already-freed allocator caches to macOS after the last graphics session ends.
+pub fn release_unused_memory() -> usize {
+    unsafe { sp_release_unused_memory() }
+}
+
 unsafe fn take_string(raw: *mut c_char) -> Option<String> {
     if raw.is_null() {
         return None;
@@ -242,4 +325,30 @@ unsafe fn take_string(raw: *mut c_char) -> Option<String> {
         .into_owned();
     unsafe { sp_free(raw.cast()) };
     Some(string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    #[test]
+    fn rejected_preview_releases_its_transferred_owner_once() {
+        unsafe extern "C" fn release(owner: *mut c_void, _: *const c_void, _: usize) {
+            let count = unsafe { Box::from_raw(owner.cast::<Arc<AtomicUsize>>()) };
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+        let count = Arc::new(AtomicUsize::new(0));
+        let owner = Box::into_raw(Box::new(count.clone())).cast();
+        let pixels = [255u8; 4];
+        // Nil NSView rejects without touching AppKit windows; ownership must still return.
+        let result = unsafe {
+            sp_prepare_window_preview(std::ptr::null_mut(), pixels.as_ptr(), 1, 1, owner, release)
+        };
+        assert_eq!(result, 0);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
 }

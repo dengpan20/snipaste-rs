@@ -8,7 +8,7 @@ pub enum CaptureError {
     InvalidRegion,
     #[error("屏幕捕获失败：{0}")]
     Platform(String),
-    #[error("请在系统设置中允许 Snipaste-RS 录制屏幕，然后退出并重新打开应用")]
+    #[error("请在系统设置中允许映贴录制屏幕，然后退出并重新打开应用")]
     PermissionDenied,
     #[error("当前平台尚未提供屏幕捕获")]
     Unsupported,

@@ -2,7 +2,7 @@
 
 macOS 14+ Apple Silicon 使用 `bash scripts/build-macos.sh` 或双击根目录 `Build macOS.command`，详见 [Mac 指南](macos.md)。Cargo 默认使用当前主机目标；Windows 环境脚本选择 GNU，Mac 脚本显式指定 `aarch64-apple-darwin`。
 
-> 适用：Windows 开发机（当前环境）
+> 下方第 1–6 节记录 Windows 开发环境；Mac 使用第 7 节及 [Mac 指南](macos.md)。
 > 版本：v1.0 · 2026-10-11
 > 目标平台：`x86_64-pc-windows-gnu`
 
@@ -401,8 +401,8 @@ SNIPASTE_SMOKE_MS=4000 cargo run -p snipaste-app
 
 ## 7. macOS Apple Silicon 构建
 
-macOS 版本必须在有 Apple SDK 的 Mac 上构建。Windows 可检查 `aarch64-apple-darwin` 的 Rust 分支，不能在本环境链接和验证 `.app`。
+macOS 版本必须在有 Apple SDK 的 Apple Silicon Mac 上构建。Windows 的 `aarch64-apple-darwin` Rust-only 检查不能编译 Objective-C 桥或产出可运行的 `.app`。
 
-0.2.4 提供一键构建、arm64 `.app` 打包、临时签名，以及可选 Developer ID 签名 / 公证。已添加 `.github/workflows/macos-arm64.yml`，在 Apple Silicon runner 上编译原生平台桥、运行测试并上传压缩包。当前没有关联的 GitHub 仓库，工作流尚未执行。
+0.2.4 提供一键构建、arm64 `.app` 打包、临时签名，以及可选 Developer ID 签名 / 公证。`.github/workflows/macos-arm64.yml` 可在 Apple Silicon runner 上编译原生平台桥、运行测试并上传压缩包；本机验证结果见 [macOS 验证记录](macos-verification.md)。
 
 构建：`bash scripts/build-macos.sh --verify`。操作与权限说明见 [macOS 指南](macos.md)。iOS 不在当前兼容范围。

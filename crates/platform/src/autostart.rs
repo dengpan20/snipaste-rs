@@ -71,7 +71,7 @@ mod imp {
             let bundle = exe
                 .ancestors()
                 .find(|p| p.extension().is_some_and(|e| e == "app"))
-                .ok_or("开机自启需要从 Snipaste-RS.app 启动")?;
+                .ok_or("开机自启需要从映贴.app 启动")?;
             // LaunchServices opens the .app, preserving its screen-recording identity.
             let content = launch_agent::plist(bundle)?;
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;

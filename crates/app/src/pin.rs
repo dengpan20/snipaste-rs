@@ -8,7 +8,7 @@ use snipaste_core::Pos;
 use snipaste_render::{fonts, theme, Viewport};
 use std::sync::Arc;
 use winit::{
-    event::WindowEvent,
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     window::{Window, WindowLevel},
 };
@@ -26,6 +26,7 @@ pub struct PinWindow {
     texture: egui::TextureHandle,
     zoom: f32,
     opacity: f32,
+    fonts_loaded: bool,
 }
 impl PinWindow {
     pub fn new(
@@ -36,9 +37,8 @@ impl PinWindow {
     ) -> Result<Self> {
         let ctx = egui::Context::default();
         theme::apply(&ctx);
-        fonts::install(&ctx);
         let attrs = Window::default_attributes()
-            .with_title("Snipaste-RS 贴图")
+            .with_title(format!("{} 贴图", crate::APP_NAME))
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
@@ -96,9 +96,23 @@ impl PinWindow {
             texture,
             zoom: 1.0,
             opacity: 1.0,
+            fonts_loaded: false,
         })
     }
     pub fn event(&mut self, gfx: &GpuContext, event: &WindowEvent) -> Option<PinCommand> {
+        if !self.fonts_loaded
+            && matches!(
+                event,
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Right,
+                    ..
+                }
+            )
+        {
+            // Image-only pins need no CJK font. Load it before the menu's first frame.
+            self.fonts_loaded = fonts::install(&self.ctx).is_some();
+        }
         let repaint = self
             .surface
             .egui
@@ -122,6 +136,37 @@ impl PinWindow {
         }
         command
     }
+    #[cfg(debug_assertions)]
+    pub fn verify_menu_fonts(&mut self, gfx: &GpuContext) -> Result<()> {
+        anyhow::ensure!(!self.fonts_loaded, "贴图提前加载了中文字体");
+        self.event(
+            gfx,
+            &WindowEvent::MouseInput {
+                device_id: winit::event::DeviceId::dummy(),
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+            },
+        );
+        self.event(gfx, &WindowEvent::RedrawRequested);
+        anyhow::ensure!(self.fonts_loaded, "贴图右键菜单未加载中文字体");
+        anyhow::ensure!(
+            self.ctx.fonts_mut(|fonts| fonts.has_glyphs(
+                &egui::FontId::proportional(14.0),
+                "复制保存恢复原始大小关闭"
+            )),
+            "贴图菜单缺少中文字形"
+        );
+        self.event(
+            gfx,
+            &WindowEvent::MouseInput {
+                device_id: winit::event::DeviceId::dummy(),
+                state: ElementState::Released,
+                button: MouseButton::Right,
+            },
+        );
+        Ok(())
+    }
+
     fn redraw(&mut self, gfx: &GpuContext) -> Option<PinCommand> {
         let raw = self.surface.egui.take_egui_input(&self.surface.window);
         let mut command = None;

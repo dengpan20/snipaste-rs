@@ -20,6 +20,6 @@ jobs:
         run: bash scripts/build-macos.sh --verify
       - uses: actions/upload-artifact@v4
         with:
-          name: snipaste-rs-macos-arm64
-          path: dist/snipaste-rs-*-macos-arm64.zip
+          name: yingtie-macos-arm64
+          path: dist/yingtie-*-macos-arm64.zip
           if-no-files-found: error

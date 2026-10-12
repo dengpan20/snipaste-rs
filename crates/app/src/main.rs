@@ -1,4 +1,4 @@
-//! # snipaste-rs
+//! # 映贴
 //!
 //! 跨端截图标注工具（Snipaste 复刻）。Rust 原生实现，macOS 平台能力用薄 Objective-C 桥：
 //! `winit` 管窗口、`egui` 管界面、`wgpu` 管渲染，没有 WebView、没有 JS 运行时。
@@ -30,18 +30,23 @@ mod hotkey;
 mod memory_profile;
 mod pin;
 mod qr;
+#[cfg(any(target_os = "macos", test))]
+mod screen_permission;
 mod tray;
 mod ui;
 
 use anyhow::{Context as _, Result};
 use winit::event_loop::{ControlFlow, EventLoop};
 
+/// User-facing name; executable and bundle identifiers stay stable across renames.
+pub const APP_NAME: &str = "映贴";
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
 
-    log::info!("snipaste-rs {} 启动", env!("CARGO_PKG_VERSION"));
+    log::info!("{APP_NAME} {} 启动", env!("CARGO_PKG_VERSION"));
 
     let mut builder = EventLoop::<app::UserEvent>::with_user_event();
     #[cfg(target_os = "macos")]
@@ -64,6 +69,6 @@ fn main() -> Result<()> {
         .run_app(&mut application)
         .context("事件循环异常退出")?;
 
-    log::info!("snipaste-rs 已退出");
+    log::info!("{APP_NAME} 已退出");
     Ok(())
 }

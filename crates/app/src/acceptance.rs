@@ -57,7 +57,8 @@ pub fn editor() -> Editor {
     });
     ed.doc.items.push(Annotation::Text {
         rect: Rect::new(215.0, 350.0, 350.0, 60.0),
-        content: "截图标注 · 确认后 Ctrl+V 粘贴".into(),
+        content: ui::shortcut_hint("截图标注 · 确认后 Ctrl+V 粘贴", "截图标注 · 确认后 ⌘V 粘贴")
+            .into(),
         style: Style {
             font_size: 26.0,
             ..Style::default()
@@ -108,7 +109,7 @@ fn render_ui_with_input(
                 snapshot: shot,
                 texture: &texture,
             }),
-            "F1",
+            ui::shortcut_hint("F1", "⌘⇧2"),
         );
     });
     // Area 的首帧测量完成后，保留纹理增量、使用后续帧的最终布局。
@@ -122,7 +123,7 @@ fn render_ui_with_input(
                     snapshot: shot,
                     texture: &texture,
                 }),
-                "F1",
+                ui::shortcut_hint("F1", "⌘⇧2"),
             );
         }));
     }

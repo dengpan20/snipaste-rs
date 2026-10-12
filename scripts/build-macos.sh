@@ -33,34 +33,34 @@ elif [[ $# -gt 0 ]]; then
     echo "用法: bash scripts/build-macos.sh [--verify]" >&2; exit 1
 fi
 cargo build --locked --release -p snipaste-app --target "$target"
-app="dist/macos-${version}/Snipaste-RS.app"
+app="dist/macos-${version}/映贴.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "target/$target/release/snipaste-rs" "$app/Contents/MacOS/snipaste-rs"
+cp packaging/macos/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 chmod 755 "$app/Contents/MacOS/snipaste-rs"
 sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 archs="$(lipo -archs "$app/Contents/MacOS/snipaste-rs")"
 [[ "$archs" == arm64 ]] || { echo "错误的应用架构: $archs" >&2; exit 1; }
-identity="${MACOS_SIGN_IDENTITY:--}"
-if [[ "$identity" == - ]]; then
-    codesign --force --sign - --identifier io.snipaste-rs.app "$app"
-else
-    codesign --force --sign "$identity" --options runtime --timestamp "$app"
-fi
+/usr/bin/python3 scripts/sign-macos.py "$app"
 codesign --verify --strict --verbose=2 "$app"
-zip="dist/snipaste-rs-${version}-macos-arm64.zip"
+zip="dist/yingtie-${version}-macos-arm64.zip"
 # ditto preserves executable permissions, bundle metadata and UTF-8 filenames.
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 if [[ -n "${MACOS_NOTARY_PROFILE:-}" ]]; then
-    [[ "$identity" != - ]] || { echo "公证需要 Developer ID 签名。" >&2; exit 1; }
+    [[ -n "${MACOS_SIGN_IDENTITY:-}" && "${MACOS_SIGN_IDENTITY:-}" != - ]] || { echo "公证需要 MACOS_SIGN_IDENTITY 指定 Developer ID 签名。" >&2; exit 1; }
     xcrun notarytool submit "$zip" --keychain-profile "$MACOS_NOTARY_PROFILE" --wait
     xcrun stapler staple "$app"
     xcrun stapler validate "$app"
     spctl --assess --type execute --verbose=2 "$app"
     ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 fi
+(
+    cd "$(dirname "$zip")"
+    shasum -a 256 "$(basename "$zip")"
+) > "$zip.sha256"
 echo
 echo "构建完成：$app"
 echo "分享压缩包：$zip"
-echo "请将 Snipaste-RS.app 移入‘应用程序’目录，然后双击打开。"
+echo "请将映贴.app 移入‘应用程序’目录，然后双击打开。"
 echo "首次截图需要授予屏幕录制权限。详细步骤见 docs/macos.md。"

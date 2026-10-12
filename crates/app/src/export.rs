@@ -138,6 +138,31 @@ fn rasterize_with_renderer(
         size_in_pixels: [width, height],
         pixels_per_point: full.pixels_per_point,
     };
+    rasterize_prepared(
+        gfx,
+        &mut renderer,
+        &jobs,
+        &desc,
+        wgpu::TextureFormat::Rgba8Unorm,
+    )
+}
+
+/// Render with the window's existing textures, without acquiring a hidden Metal drawable.
+pub fn rasterize_prepared(
+    gfx: &GpuContext,
+    renderer: &mut egui_wgpu::Renderer,
+    jobs: &[egui::ClippedPrimitive],
+    desc: &egui_wgpu::ScreenDescriptor,
+    format: wgpu::TextureFormat,
+) -> Result<image::RgbaImage> {
+    anyhow::ensure!(
+        matches!(
+            format,
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
+        ),
+        "离屏渲染需要 RGBA / BGRA 8 位表面"
+    );
+    let [width, height] = desc.size_in_pixels;
     let size = wgpu::Extent3d {
         width,
         height,
@@ -149,7 +174,7 @@ fn rasterize_with_renderer(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
@@ -166,7 +191,7 @@ fn rasterize_with_renderer(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("export"),
         });
-    let commands = renderer.update_buffers(&gfx.device, &gfx.queue, &mut encoder, &jobs, &desc);
+    let commands = renderer.update_buffers(&gfx.device, &gfx.queue, &mut encoder, jobs, desc);
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
     {
         let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -185,7 +210,7 @@ fn rasterize_with_renderer(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        renderer.render(&mut pass.forget_lifetime(), &jobs, &desc);
+        renderer.render(&mut pass.forget_lifetime(), jobs, desc);
     }
     encoder.copy_texture_to_buffer(
         target.as_image_copy(),
@@ -222,6 +247,11 @@ fn rasterize_with_renderer(
     }
     drop(mapped);
     buffer.unmap();
+    if format == wgpu::TextureFormat::Bgra8Unorm {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+        }
+    }
     image::RgbaImage::from_raw(width, height, rgba).context("合成图片尺寸错误")
 }
 

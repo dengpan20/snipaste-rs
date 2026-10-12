@@ -188,15 +188,31 @@ pub fn install(ctx: &egui::Context) -> Option<Candidate> {
         if let Some(data) = shared {
             data
         } else {
-            let bytes = match std::fs::read(&cand.path) {
-                Ok(bytes) => bytes,
+            let loaded = {
+                #[cfg(target_os = "macos")]
+                {
+                    let compact = (|| {
+                        let mut file = std::fs::File::open(&cand.path)?;
+                        crate::font_file::load(&mut file, cand.path.metadata()?.len(), cand.index)
+                    })();
+                    compact.or_else(|err| {
+                        log::warn!("读取单个字体失败，使用原始字体集合：{err}");
+                        std::fs::read(&cand.path).map(|bytes| (bytes, cand.index))
+                    })
+                }
+                #[cfg(not(target_os = "macos"))]
+                std::fs::read(&cand.path).map(|bytes| (bytes, cand.index))
+            };
+            let (bytes, index) = match loaded {
+                Ok(font) => font,
                 Err(err) => {
                     log::warn!("读取字体 {} 失败：{err}", cand.path.display());
                     return None;
                 }
             };
+            log::info!("中文字体数据：{} bytes", bytes.len());
             let mut data = FontData::from_owned(bytes);
-            data.index = cand.index;
+            data.index = index;
             let data = Arc::new(data);
             *cache = Some((cand.path.clone(), cand.index, Arc::downgrade(&data)));
             data

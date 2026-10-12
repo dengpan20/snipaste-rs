@@ -5,6 +5,7 @@ use std::{path::PathBuf, time::Instant};
 pub struct Profile {
     pub step: usize,
     pub deadline: Instant,
+    pub pins: bool,
     path: PathBuf,
     rows: String,
 }
@@ -15,8 +16,9 @@ impl Profile {
         Some(Self {
             step: 0,
             deadline: Instant::now() + std::time::Duration::from_secs(1),
+            pins: std::env::var("SNIPASTE_MEMORY_PROFILE_PINS").as_deref() == Ok("1"),
             path: dir.join("memory.csv"),
-            rows: "stage,resident_bytes,private_bytes,peak_resident_bytes,peak_private_bytes,capture_ms,gpu,overlay\n".into(),
+            rows: "stage,resident_bytes,private_bytes,peak_resident_bytes,peak_private_bytes,capture_ms,gpu,overlay,width,height,pins\n".into(),
         })
     }
 
@@ -26,12 +28,19 @@ impl Profile {
         capture_ms: u128,
         gpu: bool,
         overlay: bool,
+        dimensions: [u32; 2],
+        pins: usize,
     ) -> Result<()> {
         let usage = snipaste_platform::memory::usage()
             .ok_or_else(|| anyhow::anyhow!("无法读取进程内存"))?;
         self.rows.push_str(&format!(
-            "{stage},{},{},{},{},{capture_ms},{gpu},{overlay}\n",
-            usage.resident, usage.private, usage.peak_resident, usage.peak_private
+            "{stage},{},{},{},{},{capture_ms},{gpu},{overlay},{},{},{pins}\n",
+            usage.resident,
+            usage.private,
+            usage.peak_resident,
+            usage.peak_private,
+            dimensions[0],
+            dimensions[1],
         ));
         std::fs::create_dir_all(self.path.parent().unwrap())?;
         std::fs::write(&self.path, &self.rows)?;

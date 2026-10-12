@@ -14,7 +14,7 @@ fn xml(text: &str) -> String {
 pub fn plist(bundle: &Path) -> Result<String, String> {
     let path = bundle.to_str().ok_or("应用路径不是有效的 UTF-8")?;
     if !bundle.is_absolute() || bundle.extension().and_then(|v| v.to_str()) != Some("app") {
-        return Err("请将 Snipaste-RS.app 放入应用程序目录后再开启自启".into());
+        return Err("请将映贴.app 放入应用程序目录后再开启自启".into());
     }
     Ok(format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>

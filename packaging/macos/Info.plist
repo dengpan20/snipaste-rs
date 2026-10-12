@@ -2,8 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
-  <key>CFBundleDisplayName</key><string>Snipaste-RS</string>
-  <key>CFBundleName</key><string>Snipaste-RS</string>
+  <key>CFBundleDisplayName</key><string>映贴</string>
+  <key>CFBundleName</key><string>映贴</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleExecutable</key><string>snipaste-rs</string>
   <key>CFBundleIdentifier</key><string>io.snipaste-rs.app</string>
   <key>CFBundlePackageType</key><string>APPL</string>

@@ -1,27 +1,61 @@
-# macOS Apple Silicon（0.2.4）
+# 映贴 · macOS Apple Silicon（0.2.4）
 
 目标：macOS 14+，M1 / M2 / M3 / M4 等 Apple Silicon；仅构建 `arm64`，不包含 Intel / Rosetta 版本。
 
 ## 在 Mac 上构建
 
-1. 解压 `snipaste-rs-0.2.4-macos-arm64-source.zip`。
+1. 克隆本仓库、解压 GitHub 的 **Code → Download ZIP**，或解压 `yingtie-0.2.4-macos-arm64-source.zip`（如已提供）。
 2. 首次准备：安装 [Rust](https://rustup.rs)，并在终端运行 `xcode-select --install` 安装 Apple 命令行开发工具。需要 macOS 14+ SDK。
 3. 双击根目录的 **Build macOS.command**。首次编译会下载依赖，耗时取决于网络和设备。
-4. 将生成的 `dist/macos-0.2.4/Snipaste-RS.app` 移入 **应用程序**，双击打开。程序驻留菜单栏，不显示 Dock 图标。
+4. 将生成的 `dist/macos-0.2.4/映贴.app` 移入 **应用程序**，双击打开。程序驻留菜单栏，仅显示截图图标，不显示 Dock 图标。
 
-命令行方式：`bash scripts/build-macos.sh`。需要编译、代码检查和单元测试时运行 `bash scripts/build-macos.sh --verify`。
+命令行方式（在项目根目录执行）：
 
-脚本默认使用本机临时签名。它不等于 Apple Developer ID 签名或公证。自己在本机构建后可直接使用；分享给另一台 Mac 时，系统可能提示无法验证开发者，可通过「系统设置 → 隐私与安全性 → 仍要打开」处理。
+```bash
+bash scripts/build-macos.sh
+```
+
+完整构建检查：
+
+```bash
+bash scripts/build-macos.sh --verify
+```
+
+`--verify` 依次执行格式检查、整个 workspace 的 clippy（告警视为错误）、单元测试、release 编译和 `.app` 打包。两种方式都会编译并链接 Objective-C 原生桥，校验 `Info.plist`、arm64 架构和签名，生成：
+
+- 应用：`dist/macos-0.2.4/映贴.app`
+- 压缩包：`dist/yingtie-0.2.4-macos-arm64.zip`
+
+构建脚本自动将 `~/.cargo/bin` 加入 PATH。首次安装 Rust 后，如需直接使用 `cargo`，先运行 `source "$HOME/.cargo/env"` 或重新打开终端。
+
+脚本默认使用固定的本机代码签名证书，同一台 Mac 重新构建会复用身份，避免每次更新都因临时签名变化而重新识别授权。它不等于 Apple Developer ID 签名或公证。自己在本机构建后可直接使用；分享给另一台 Mac 时，系统可能提示无法验证开发者，可通过「系统设置 → 隐私与安全性 → 仍要打开」处理。
 
 若系统拦截 `.command`，可在终端进入解压目录后运行 `bash 'Build macOS.command'`。没有要求关闭系统安全设置。
 
+应用已内置蓝绿色的截图框与图钉图标，Finder、启动台和权限提示会使用同一图标。图标源文件为 `packaging/macos/AppIcon.png`，打包文件为 `packaging/macos/AppIcon.icns`；重新生成打包图标可运行 `bash scripts/generate-macos-icon.sh`。
+
+从旧版升级时先退出 Snipaste-RS，再用映贴替换旧应用。应用保留原有 bundle identifier `io.snipaste-rs.app` 和可执行文件名 `snipaste-rs`；从旧版临时签名首次迁移到本机固定证书时，系统需要刷新一次授权；之后由同一签名证书构建的更新保留相同签名身份。已启用自启时，移动或更名后应取消再重新勾选，让启动路径更新为映贴。
+
 ## 首次截图权限
 
-点击菜单栏图标 → 截图，或按 **⌘⇧2**。首次会请求屏幕录制权限。
+点击菜单栏图标 → 截图，或按 **⌘⇧2**。程序只检查权限，不在每次截图时调用系统授权请求。若尚未授权，本次运行仅显示一次应用提示，点击 **打开权限设置**，即可直接进入对应页面；点击 **稍后** 关闭提示；之后可随时从菜单栏打开权限设置。
 
-在 **系统设置 → 隐私与安全性 → 屏幕与系统音频录制**（macOS 14 中可能叫“屏幕录制”）允许 **Snipaste-RS**，然后从菜单栏退出并重新打开。菜单项 **屏幕录制权限设置…** 可直接进入该页面。
+在 **系统设置 → 隐私与安全性 → 屏幕与系统音频录制**（macOS 14 中可能叫“屏幕录制”）允许 **映贴**，然后从菜单栏退出并重新打开。菜单项 **屏幕录制权限设置…** 可直接进入该页面。
+
+如果权限列表里没有 **映贴**：
+
+1. 点击上方“录屏与系统录音”列表下的 **＋ / 添加**，不要选择下方“仅系统录音”的添加按钮。
+2. 在应用选择窗口按 **⌘⇧G**，输入 `/Applications/映贴.app`，按回车定位，再点击“打开”。
+3. 打开 **映贴** 的权限开关。如果同时安装了原版 **Snipaste**，两者需要分别授权。
+4. 从菜单栏退出映贴，再从“应用程序”目录重新打开。移动 `.app` 到“应用程序”后，也应退出旧进程再重新启动。
+
+系统支持手动添加应用，参见 [Apple 的录屏权限说明](https://support.apple.com/zh-cn/guide/mac-help/mchld6aa7d23/mac)。从终端或开发工具运行验收程序时，权限可能归属于启动它的宿主应用，不能据此认定正式 `.app` 已单独获授权。
 
 启动、贴图和复制剪贴板内容不主动请求屏幕录制权限。不需要辅助功能权限；普通组合热键使用 Carbon 注册。
+
+如果系统开关已经开启，应用仍提示未授权，先退出映贴，在该页面将映贴关闭后重新开启，再从“应用程序”打开新版，以刷新旧临时签名的授权记录。必要时移除旧记录并重新添加 `/Applications/映贴.app`。不要重置其他应用的权限。
+
+应用每次截图都会重新检查实际权限，撤销授权后会停止截图；ScreenCaptureKit 由系统控制的定期确认仍可能出现，应用不会再立即叠加另一条权限提示。
 
 ## 操作
 
@@ -37,7 +71,15 @@
 | 二维码 | Q / 二维码图标，识别选区内的二维码 |
 | 取消 | Esc；右键可重新框选 |
 
-Mac 键盘的 F1 / F3 可能需要按 Fn；菜单显示实际注册成功的热键。左键点击菜单栏图标打开菜单，深浅色模式由系统调整图标颜色。
+Mac 键盘的 F1 / F3 可能需要按 Fn；菜单显示实际注册成功的热键。左键或右键点击顶部菜单栏的截图图标打开菜单，深浅色模式由系统调整图标颜色。菜单包含截图、贴图、屏幕录制权限设置、开机自启、操作说明与快捷键、关于映贴和退出。
+
+## 菜单栏图标看不到
+
+本机曾复现应用运行正常但菜单栏图标被摄像头刘海遮住（[Apple 说明](https://support.apple.com/en-sg/102125)）：系统将入口放在内建屏幕顶部的非安全区域。现在首次启动会为没有已保存位置的菜单栏入口设置靠右的初始位置，菜单栏仅显示图标；之后仍使用系统保存的拖动位置。
+
+如果菜单栏仍较拥挤，可按住 **⌘** 将映贴拖到靠近时钟的位置，或从系统控制中心设置中减少不需要显示的系统图标。全屏时菜单栏可能自动隐藏，先将指针移到屏幕顶部。Mac 快捷键 **⌘⇧2** 仍可直接截图。
+
+开发诊断可使用 debug bundle，设置 `SNIPASTE_VERIFY_MENU_BAR=probe` 和 `RUST_LOG=info` 后从终端运行：日志会记录入口实际窗口位置以及摄像头两侧的安全区域。设置为 `1` 时还会打开关于窗口，方便 UI 验收；正式 release 不自动打开验收窗口。
 
 ## 多屏、Retina 和内存
 
@@ -45,6 +87,8 @@ Mac 键盘的 F1 / F3 可能需要按 Fn；菜单显示实际注册成功的热�
 - Quartz 逻辑坐标按该显示器的 backing scale 转为物理像素，避免不同缩放显示器的坐标拼接错误。跨屏窗口预选裁剪到当前屏幕。
 - ScreenCaptureKit 只抓单帧，不维持视频流；输出转为 sRGB RGBA，颜色值、马赛克、橡皮擦和导出共用同一份冻结像素。
 - 使用 Metal，待机不创建截图窗口、GPU 设备或字体图集；没有贴图时截图结束空闲 3 秒释放 GPU。Mac 内存诊断使用真实 resident size / physical footprint，和 Windows 的 private commit 含义不同。
+- 中文字体只读取所用字面的完整数据，保留其全部字形和排版表；贴图只显示图片时不加载中文字体，在首次打开右键菜单前加载。截图首帧读回的像素由 AppKit 图像持有，避免额外的整屏复制。
+- 最后一张贴图或截图结束、空闲设备释放后，请求系统分配器归还已经释放的堆缓存，减少长期待机残留；存在活动截图或贴图时不执行。
 - 授权期间不会创建截图界面。确认 / 取消后隐藏并销毁截图会话，并尝试将焦点交还截图前的应用，方便直接 ⌘V。
 - 在用户勾选开机自启时写入 `~/Library/LaunchAgents/io.snipaste-rs.app.plist`，下次登录由 LaunchServices 打开 `.app`。请先将应用放在固定位置；移动应用后取消再重新勾选自启。
 
@@ -60,12 +104,46 @@ Mac 键盘的 F1 / F3 可能需要按 Fn；菜单显示实际注册成功的热�
 8. 菜单栏退出、再次打开、自启取消 / 重新开启、全屏应用所在 Space，均检查一次。
 9. 活动监视器观察待机和连续截图后的内存是否回落。可用 `bash scripts/verify-macos.sh --memory` 输出 3 轮 CSV。
 
-自动原生验收：`bash scripts/verify-macos.sh`。第一次建议先启动正式 `.app` 授权，再退出。验收程序是单独的调试 bundle，需要单独授权；若失败，授权并重新执行。结果保存在 `dist/macos-verification/`，其中必须出现 `result.txt` 的 `PASS` 才算通过；仅退出码为 0 不足以证明成功。
+自动原生验收（请先退出正在运行的映贴，避免热键冲突）：
+
+```bash
+bash scripts/verify-macos.sh
+```
+
+脚本创建独立的 **映贴 Verify.app** 调试应用；它的屏幕录制权限与正式应用分别管理。首次运行若因权限退出，在系统设置中允许验收应用，然后重新执行脚本。验收期间请保持鼠标在待测显示器内，暂时不要操作鼠标键盘。
+
+脚本检查真实屏幕捕获、Metal 渲染、取色、马赛克与擦除、撤销重做、标注导出、二维码、系统剪贴板、贴图窗口及会话资源释放。它会临时写入剪贴板，并在结束时恢复原有图片或文字；若剪贴板原本含其他类型数据，建议先自行保存。
+
+每次运行的记录保存在 `dist/macos-verification/<时间戳>-<进程号>/`，包含 `application.log`、界面图片和导出图片。必须出现 `result.txt` 的 `PASS` 才算通过；仅应用退出码为 0 不足以证明成功。自动验收不会完成系统保存面板操作、登录后自启或所有 Space 场景，仍需按上述清单检查。
+
+内存测量单独执行：
+
+```bash
+bash scripts/verify-macos.sh --memory
+```
+
+它使用同一验收应用，运行三轮截图并生成 `memory.csv`。CSV 中 `resident_bytes` 是 resident size，`private_bytes` 在 Mac 上是 physical footprint；这是 debug 构建的诊断数据，不应直接与 Windows release 内存结果比较。
+
+测量正式构建，并加入一张 / 三张全尺寸贴图时，使用：
+
+```bash
+bash scripts/verify-macos.sh --memory-pins --release
+```
+
+仅测三轮 release 截图可用 `--memory --release`。加入贴图时 CSV 有 17 条采样，并附带屏幕尺寸和贴图数量；测量期间固定首次截图的显示器，避免指针跨屏改变前后比较条件。普通截图仍跟随指针。脚本从终端启动，录屏权限可能归属于宿主应用，不能用它单独判断正式应用是否获授权。本机独立启动的 release 对比见 [Mac 内存记录](macos-memory.md)。
+
+多屏对比时可设置 `SNIPASTE_MEMORY_PROFILE_SCREEN=5120x2880`，明确选择该物理尺寸的屏幕；找不到匹配屏幕时测量停止。此变量仅在内存测量模式生效。
 
 ## 签名与公证
+
+默认本机证书、加密签名钥匙串与其密码保存在 `~/Library/Application Support/Yingtie/Signing/`，目录仅当前用户可访问，不进入源码包。请备份整个目录；换机器或丢失签名密钥后需要重新授权。签名时临时将专用钥匙串加入搜索列表，完成后移除，不添加系统受信任根证书。
+
+可用 `/usr/bin/python3 scripts/sign-macos.py <应用路径>` 重新签名。显式设置 `MACOS_SIGN_IDENTITY=-` 会使用原来的 ad-hoc 签名，重新构建可能再次需要授权；GitHub CI 没有指定证书时使用该模式，适合构建验证，不代表跨次发布的身份稳定。
 
 有 Developer ID 证书时，构建前设置 `MACOS_SIGN_IDENTITY`。若已用 `notarytool store-credentials` 创建钥匙串配置，可再设置 `MACOS_NOTARY_PROFILE`；脚本会提交公证、附加票据并验证。证书和凭据由本机钥匙串管理，不写入源码。
 
 ## 验证范围
 
-当前开发机是 Windows：可执行 Windows 回归和 Apple Silicon Rust 分支的类型检查，无法在此链接 Apple framework 或运行 macOS 应用。原生 Objective-C 桥、Metal 显示、权限和快捷键仍需上面的 Mac 构建 / 真机验收。仓库附带 Apple Silicon CI 工作流，放入 GitHub 仓库后可编译和上传 `.app` 压缩包；CI 不代替桌面截图权限和交互验收。
+本次原生验证环境为 Apple M3 MacBook Air、macOS 15.5、macOS 15.4 SDK、Rust 1.99.0，连接内建 Retina 屏和外接 5K 屏。实际通过项与未覆盖场景见 [macOS 验证记录](macos-verification.md)。其他 macOS 版本、缩放配置及全屏 Space 仍需各自验收。
+
+仓库附带 Apple Silicon CI 工作流，可编译和上传 `.app` 压缩包；CI 不代替桌面截图权限和交互验收。本机固定签名和 CI 临时签名均不代表已经完成 Developer ID 签名或 Apple 公证。

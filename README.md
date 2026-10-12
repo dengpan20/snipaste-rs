@@ -1,14 +1,16 @@
-# Snipaste-RS
+# 映贴
+
+<img src="packaging/macos/AppIcon.png" width="112" alt="映贴应用图标">
 
 **快捷截图、图片标注与桌面贴图，让信息随手截、随手用。**
 
-Snipaste-RS 是一个以 Snipaste 的界面和操作流程为参考的开源截图工具，使用 Rust 构建原生桌面界面。你可以通过快捷键截取窗口或任意区域，添加标注、遮挡敏感内容，再复制到聊天、文档或笔记中；也可以把图片固定在桌面上，方便边看边工作。
+映贴（原名 Snipaste-RS）是一个以 Snipaste 的界面和操作流程为参考的开源截图工具，使用 Rust 构建原生桌面界面。你可以通过快捷键截取窗口或任意区域，添加标注、遮挡敏感内容，再复制到聊天、文档或笔记中；也可以把图片固定在桌面上，方便边看边工作。
 
 适合日常沟通截图、问题反馈、设计取色，以及将参考资料贴在屏幕上对照使用。
 
 [快速开始](#快速开始) · [功能](#功能) · [快捷键](#快捷键) · [开发与文档](#开发与文档)
 
-## 为什么选择 Snipaste-RS
+## 为什么选择映贴
 
 - **操作连贯**：悬停预选窗口、拖动框选、就地标注、确认复制，截图后可以直接粘贴到支持图片的应用。
 - **轻量待机**：启动时只建立托盘和热键；窗口、字体和图形设备按需加载，截图结束后释放会话资源。没有贴图时，空闲 3 秒后释放图形设备。
@@ -51,7 +53,7 @@ Windows 0.2.3 在一台 3440 × 1440 显示器的测试电脑上：
 | 平台 | 当前状态 |
 |---|---|
 | Windows x64 | 已完成截图主流程和桌面贴图，单元测试与原生验收通过 |
-| macOS 14+ / Apple Silicon | 已加入平台适配与 arm64 构建脚本；Rust 分支检查通过，原生编译与交互仍待 Mac 真机验证 |
+| macOS 14+ / Apple Silicon | 已在 Apple M3 / macOS 15.5 完成原生构建、150 项单元测试、截图 / 标注 / 剪贴板 / 二维码 / 贴图自动验收；其他系统与显示配置仍需验证 |
 | Intel Mac / Linux | 当前不提供支持 |
 
 Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持一次跨多个显示器框选。Windows 混合 DPI 多屏仍需更多真机验证。
@@ -82,17 +84,19 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
    xcode-select --install
    ```
 
-2. 在 GitHub 点击 **Code → Download ZIP** 获取源码并解压，或使用 Releases 中的 `snipaste-rs-0.2.4-macos-arm64-source.zip`（如已上传）。
+2. 在 GitHub 点击 **Code → Download ZIP** 获取源码并解压，或使用 Releases 中的 `yingtie-0.2.4-macos-arm64-source.zip`（如已上传）。
 3. 双击项目根目录的 **Build macOS.command**。也可以在项目目录运行：
 
    ```bash
    bash scripts/build-macos.sh
    ```
 
-4. 将生成的 `dist/macos-0.2.4/Snipaste-RS.app` 移入“应用程序”，然后打开。程序驻留菜单栏。
-5. 按 **⌘⇧2** 或从菜单栏选择“截图”。首次使用时，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中授权，再退出并重新打开应用。
+4. 将生成的 `dist/macos-0.2.4/映贴.app` 移入“应用程序”，然后打开。顶部菜单栏仅显示截图图标，点击可打开截图、贴图、权限设置、自启、操作说明、关于和退出菜单。
+5. 按 **⌘⇧2** 或从菜单栏选择“截图”。权限提示中点击 **打开权限设置** 可直接跳转，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中授权，再退出并重新打开应用。
 
-构建需要 macOS 14+ SDK，首次编译会下载依赖。脚本默认使用本机临时签名，尚无已验证、已公证的 Mac 成品包。更多权限、签名和真机验收步骤见 [Mac 指南](docs/macos.md)。
+构建需要 macOS 14+ SDK，首次编译会下载依赖。脚本同时生成 `dist/yingtie-0.2.4-macos-arm64.zip`，本机构建默认使用固定的本机签名证书；本机构建与验收已通过，Developer ID 签名和 Apple 公证尚未执行。更多权限、签名和验收步骤见 [Mac 指南](docs/macos.md)。
+
+需要同时检查代码和运行单元测试时，使用 `bash scripts/build-macos.sh --verify`。桌面功能验收和三轮内存诊断分别使用 `bash scripts/verify-macos.sh`、`bash scripts/verify-macos.sh --memory`，验收应用需要自己的屏幕录制权限。
 
 ### Windows：从源码构建
 
@@ -131,7 +135,7 @@ cargo build --locked --release -p snipaste-app --target x86_64-pc-windows-msvc
 
 - 暂未提供滚动截图、OCR、贴图分组与历史库，以及完整的高级设置。
 - Windows 使用 GDI 捕获，独占全屏游戏和受保护视频内容不保证能正常截取。
-- macOS 的权限、Metal 显示、Retina 坐标、焦点恢复和开机自启仍需真机验收。Mac 内存数据尚未实测，不能套用 Windows 测量结果。
+- macOS 已通过当前 Retina 显示器上的自动截图与 Metal 验收，以及旧授权刷新后的独立启动截图回归；首次拒绝权限的完整交互、外接屏切换、全屏 Space、焦点恢复、系统保存面板和登录后自启仍需专项交互验收。已完成 Mac debug 诊断和 5K 屏 release 内存对比，见 [Mac 内存记录](docs/macos-memory.md)，不能套用 Windows 测量结果。
 
 ## 开发与文档
 
@@ -145,7 +149,7 @@ cargo build --locked --release -p snipaste-app --target x86_64-pc-windows-msvc
 | `snipaste-platform` | 热键、剪贴板、窗口查询、保存、权限和自启 |
 | `snipaste-app` | 事件循环、截图界面和贴图窗口 |
 
-Windows 当前通过 **142 项单元测试**及原生验收。Mac 可运行以下命令，执行原生桥编译、代码检查、单元测试和打包：
+此前 Windows 验收通过 **142 项单元测试**，本次 macOS 验收通过 **150 项单元测试**，另有 1 项生成验收图片的任务默认忽略。Mac 可运行以下命令，执行原生桥编译、代码检查、单元测试和打包：
 
 ```bash
 bash scripts/build-macos.sh --verify

@@ -90,8 +90,12 @@ pub struct App {
     /// 打印已呈现的帧数。这是唯一能在无人值守环境下验证"窗口 + wgpu + 托盘 +
     /// 全局热键"整条链路真的能起来的办法（CI 上也用同一个开关）。
     smoke_deadline: Option<std::time::Instant>,
-    /// 已成功 present 的帧数。
+    /// 已成功渲染的帧数（Mac 首帧由 AppKit 呈现离屏结果）。
     frames_rendered: u64,
+    #[cfg(target_os = "macos")]
+    preview_pending: bool,
+    #[cfg(target_os = "macos")]
+    screen_permission: crate::screen_permission::Gate,
     repaint_deadline: Option<std::time::Instant>,
     memory_profile: Option<crate::memory_profile::Profile>,
 }
@@ -123,6 +127,10 @@ impl App {
             visible: false,
             smoke_deadline: None,
             frames_rendered: 0,
+            #[cfg(target_os = "macos")]
+            preview_pending: false,
+            #[cfg(target_os = "macos")]
+            screen_permission: crate::screen_permission::Gate::default(),
             repaint_deadline: None,
             memory_profile: None,
         };
@@ -151,7 +159,7 @@ impl App {
             },
         ));
 
-        // 托盘图标的点击事件：左键单击直接开截图，和 Snipaste 一致。
+        // Windows 左键直接截图；macOS 左右键均打开菜单栏菜单。
         tray_icon::TrayIconEvent::set_event_handler(Some(
             move |event: tray_icon::TrayIconEvent| {
                 // macOS left click opens the native menu-bar menu.
@@ -199,12 +207,31 @@ impl App {
 
         self.started = true;
         self.memory_profile = crate::memory_profile::Profile::from_env();
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if std::env::var("SNIPASTE_VERIFY_MENU_BAR").as_deref() == Ok("1") {
+            // Give native UI verification a window to bind before inspecting the status menu.
+            let _ = self.proxy.send_event(UserEvent::Menu(MenuAction::About));
+        }
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if let Some(path) = std::env::var_os("SNIPASTE_VERIFY_PERMISSION_PATH") {
+            std::fs::write(
+                path,
+                format!(
+                    "{{\"screen_recording_granted\":{}}}\n",
+                    snipaste_platform::macos::screen_permission()
+                ),
+            )?;
+            if std::env::var_os("SNIPASTE_VERIFY_DIR").is_none() {
+                event_loop.exit();
+                return Ok(());
+            }
+        }
         #[cfg(debug_assertions)]
         if let Ok(dir) = std::env::var("SNIPASTE_VERIFY_DIR") {
             #[cfg(target_os = "macos")]
             anyhow::ensure!(
-                snipaste_platform::macos::screen_permission(true),
-                "请允许 Snipaste-RS Verify 录制屏幕，然后重新运行验收脚本"
+                snipaste_platform::macos::screen_permission(),
+                "请允许映贴 Verify 录制屏幕，然后重新运行验收脚本"
             );
             self.ensure_graphics(event_loop)?;
             self.verify_native(event_loop, std::path::Path::new(&dir))?;
@@ -290,7 +317,7 @@ impl App {
         );
 
         let attrs = Window::default_attributes()
-            .with_title("Snipaste-RS")
+            .with_title(crate::APP_NAME)
             .with_decorations(false)
             .with_resizable(false)
             .with_visible(false)
@@ -410,10 +437,19 @@ impl App {
             self.set_overlay_visible(false);
         }
         #[cfg(target_os = "macos")]
-        if !snipaste_platform::macos::screen_permission(true) {
-            snipaste_platform::dialog::show_information("需要屏幕录制权限",
-                "请在「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」中允许 Snipaste-RS。\n授权后从菜单栏退出应用，再重新打开。\n菜单栏中的「屏幕录制权限设置…」可以直接打开该页面。");
-            return;
+        match self
+            .screen_permission
+            .check(snipaste_platform::macos::screen_permission())
+        {
+            crate::screen_permission::Decision::Capture => {}
+            crate::screen_permission::Decision::ShowGuidance => {
+                snipaste_platform::macos::show_screen_permission_prompt(crate::APP_NAME);
+                return;
+            }
+            crate::screen_permission::Decision::WaitForPermission => {
+                log::info!("等待屏幕录制授权；可通过菜单栏打开权限设置");
+                return;
+            }
         }
         #[cfg(target_os = "macos")]
         snipaste_platform::macos::begin_capture();
@@ -433,6 +469,12 @@ impl App {
             Err(err) => {
                 log::error!("无法截图：{err}");
                 self.set_overlay_visible(false);
+                #[cfg(target_os = "macos")]
+                if matches!(err, snipaste_capture::CaptureError::PermissionDenied) {
+                    // A ScreenCaptureKit consent dialog may have just been dismissed.
+                    // Never stack our own dialog on top of that system decision.
+                    return;
+                }
                 snipaste_platform::dialog::show_information("无法截图", &err.to_string());
                 return;
             }
@@ -489,6 +531,10 @@ impl App {
             }
         }
         if !visible {
+            #[cfg(target_os = "macos")]
+            {
+                self.preview_pending = false;
+            }
             // 收起时顺手停掉吸附：否则下次呼出的第一帧会带着上一次的
             // 指针位置去做一次无意义的窗口查询。
             self.editor.disarm_snap();
@@ -532,6 +578,11 @@ impl App {
                 timeout: Some(std::time::Duration::from_secs(2)),
             });
             drop(gfx);
+            #[cfg(target_os = "macos")]
+            {
+                let released = snipaste_platform::macos::release_unused_memory();
+                log::debug!("已归还分配器空闲缓存：{released} bytes");
+            }
             log::info!("空闲图形资源已释放");
         }
         self.graphics_release_deadline = None;
@@ -628,6 +679,51 @@ impl App {
                     .update_texture(&gfx.device, &gfx.queue, *id, delta);
             }
         }
+        // Uploads own their staging data; release full-screen CPU deltas before readback.
+        textures.set.clear();
+
+        #[cfg(target_os = "macos")]
+        if !self.visible {
+            // Metal skips hidden/occluded windows. Prepare the exact current UI
+            // offscreen and let AppKit display it until the first live drawable.
+            let prepared = (|| -> Result<()> {
+                let image = export::rasterize_prepared(
+                    gfx,
+                    &mut overlay.painter,
+                    &clipped,
+                    &screen_desc,
+                    overlay.config.format,
+                )?;
+                let handle = overlay.window.window_handle()?;
+                let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+                    anyhow::bail!("截图窗口不是 AppKit 窗口");
+                };
+                anyhow::ensure!(
+                    unsafe {
+                        snipaste_platform::macos::prepare_window_preview(
+                            handle.ns_view.as_ptr(),
+                            image.width(),
+                            image.height(),
+                            image.into_raw(),
+                        )
+                    },
+                    "无法准备截图首帧"
+                );
+                Ok(())
+            })();
+            match prepared {
+                Ok(()) => {
+                    self.preview_pending = true;
+                    self.frames_rendered += 1;
+                }
+                Err(err) => log::error!("截图首帧离屏渲染失败：{err:#}"),
+            }
+            for id in &textures.free {
+                overlay.painter.free_texture(id);
+            }
+            textures.clear();
+            return Some(cmds);
+        }
 
         let mut encoder = gfx
             .device
@@ -709,6 +805,30 @@ impl App {
             // 呈现本质上是一次队列操作，放在队列上语义更顺。
             gfx.queue.present(frame);
             self.frames_rendered += 1;
+            #[cfg(target_os = "macos")]
+            if self.preview_pending {
+                // Keep the prepared image until the first drawable has finished.
+                if gfx
+                    .device
+                    .poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: Some(std::time::Duration::from_secs(2)),
+                    })
+                    .is_ok()
+                {
+                    if let Ok(handle) = overlay.window.window_handle() {
+                        if let RawWindowHandle::AppKit(handle) = handle.as_raw() {
+                            unsafe {
+                                snipaste_platform::macos::clear_window_preview(
+                                    handle.ns_view.as_ptr(),
+                                )
+                            };
+                            self.preview_pending = false;
+                            log::debug!("截图首帧已切换到 Metal 表面");
+                        }
+                    }
+                }
+            }
         }
         // 拿不到帧时 `user_cmds` 与 `encoder` 被直接丢弃 —— 这是有意的，
         // 本帧本来就不呈现。
@@ -1111,7 +1231,7 @@ impl ApplicationHandler<UserEvent> for App {
                 event_loop.exit();
                 return;
             }
-            if profile.step == 12 {
+            if profile.step == if profile.pins { 16 } else { 12 } {
                 log::info!("内存验收完成");
                 event_loop.exit();
                 return;
@@ -1274,39 +1394,72 @@ impl App {
     ) -> Result<()> {
         let cycle = profile.step.div_ceil(4);
         let mut capture_ms = 0;
-        let stage = match profile.step % 4 {
-            0 => {
-                if profile.step == 0 {
-                    "startup"
-                } else {
-                    "idle"
+        let stage = if profile.step > 12 {
+            let screen = self.capture_screen().context("缺少屏幕尺寸")?;
+            match profile.step {
+                13 | 14 => {
+                    let count = if profile.step == 13 { 1 } else { 2 };
+                    for _ in 0..count {
+                        let image = image::RgbaImage::from_pixel(
+                            screen.width() as u32,
+                            screen.height() as u32,
+                            image::Rgba([60, 120, 180, 255]),
+                        );
+                        self.open_pin(event_loop, image, screen.min);
+                    }
+                    anyhow::ensure!(
+                        self.pins.len() == if profile.step == 13 { 1 } else { 3 },
+                        "内存验收贴图创建失败"
+                    );
+                    if profile.step == 13 {
+                        "pin-one"
+                    } else {
+                        "pin-three"
+                    }
                 }
-            }
-            1 => {
-                let start = std::time::Instant::now();
-                self.start_capture(event_loop);
-                anyhow::ensure!(self.visible, "无法开始内存验收截图");
-                capture_ms = start.elapsed().as_millis();
-                "capture"
-            }
-            2 => {
-                let screen = self.capture_screen().context("缺少屏幕")?;
-                self.editor.set_selection(Some(screen));
-                self.editor.set_tool(Tool::Mosaic);
-                for block in [8, 16, 24, 32] {
-                    self.editor.style.mosaic_block = block;
-                    self.editor.begin(screen.min + Pos::new(120.0, 120.0));
-                    self.editor.extend(screen.min + Pos::new(420.0, 320.0));
-                    self.editor.finish(screen.min + Pos::new(420.0, 320.0));
-                    self.render_frame();
+                15 => {
+                    self.pins.clear();
+                    self.schedule_graphics_release();
+                    "pin-closed"
                 }
-                "mosaic"
+                16 => "pin-idle",
+                _ => anyhow::bail!("未知内存验收阶段"),
             }
-            _ => {
-                let image = self.selected_image()?;
-                anyhow::ensure!(!image.is_empty(), "内存验收导出失败");
-                drop(image);
-                "export"
+        } else {
+            match profile.step % 4 {
+                0 => {
+                    if profile.step == 0 {
+                        "startup"
+                    } else {
+                        "idle"
+                    }
+                }
+                1 => {
+                    let start = std::time::Instant::now();
+                    self.start_capture(event_loop);
+                    anyhow::ensure!(self.visible, "无法开始内存验收截图");
+                    capture_ms = start.elapsed().as_millis();
+                    "capture"
+                }
+                2 => {
+                    let screen = self.capture_screen().context("缺少屏幕")?;
+                    self.editor.set_selection(Some(screen));
+                    self.editor.set_tool(Tool::Mosaic);
+                    for block in [8, 16, 24, 32] {
+                        self.editor.style.mosaic_block = block;
+                        self.editor.begin(screen.min + Pos::new(120.0, 120.0));
+                        self.editor.extend(screen.min + Pos::new(420.0, 320.0));
+                        self.editor.finish(screen.min + Pos::new(420.0, 320.0));
+                        self.render_frame();
+                    }
+                    "mosaic"
+                }
+                _ => {
+                    let image = self.selected_image()?;
+                    anyhow::ensure!(!image.is_empty(), "内存验收导出失败");
+                    drop(image);
+                    "export"
+                }
             }
         };
         if profile.step.is_multiple_of(4) {
@@ -1315,13 +1468,23 @@ impl App {
                 "待机仍保留图形资源"
             );
         }
+        let dimensions = self.screen_bounds.map_or([0, 0], |screen| {
+            [screen.width() as u32, screen.height() as u32]
+        });
+        let stage = if profile.step > 12 {
+            stage.to_owned()
+        } else {
+            format!("{stage}-{cycle}")
+        };
         profile.record(
-            &format!("{stage}-{cycle}"),
+            &stage,
             capture_ms,
             self.gfx.is_some(),
             self.overlay.is_some(),
+            dimensions,
+            self.pins.len(),
         )?;
-        if profile.step % 4 == 3 {
+        if profile.step <= 12 && profile.step % 4 == 3 {
             self.set_overlay_visible(false);
         }
         Ok(())
@@ -1396,6 +1559,7 @@ impl App {
             anyhow::ensure!(!self.pins.is_empty(), "贴图窗口创建失败");
             if let Some(gfx) = self.gfx.as_ref() {
                 self.pins[0].event(gfx, &WindowEvent::RedrawRequested);
+                self.pins[0].verify_menu_fonts(gfx)?;
             }
             self.pins.clear();
             self.verify_transitions(event_loop)?;
@@ -1617,7 +1781,7 @@ impl App {
                     .as_ref()
                     .map(|h| h.paste_label.as_str())
                     .unwrap_or("菜单栏贴图");
-                snipaste_platform::dialog::show_information("Snipaste-RS 操作说明", &format!(
+                snipaste_platform::dialog::show_information(&format!("{} 操作说明", crate::APP_NAME), &format!(
                     "{}：截图\n放大镜取色：Shift 切换 HEX / RGB，C 复制颜色\n框选后按住 Alt / Option：临时取色\nEnter / 勾号 / {modifier}C：确认复制，随后 {modifier}V 粘贴\nQ：识别选区二维码\n{modifier}S：保存截图\n{paste}：桌面贴图\n\n贴图操作\n拖动：移动\n滚轮：缩放\nShift+滚轮：透明度\n{modifier}C：复制\n右键：更多操作\nEsc / 双击：关闭", self.hotkey_label));
                 if self.visible {
                     if let Some(overlay) = self.overlay.as_ref() {
@@ -1625,6 +1789,16 @@ impl App {
                         overlay.window.focus_window();
                     }
                 }
+            }
+            MenuAction::About => {
+                snipaste_platform::dialog::show_information(
+                    &format!("关于{}", crate::APP_NAME),
+                    &format!(
+                        "{} {}\n截图、图片标注与桌面贴图。\n\n点击顶部菜单栏的截图图标可开始截图、贴图或查看设置与快捷键。",
+                        crate::APP_NAME,
+                        env!("CARGO_PKG_VERSION")
+                    ),
+                );
             }
             #[cfg(target_os = "macos")]
             MenuAction::ScreenPermission => {

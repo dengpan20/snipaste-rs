@@ -13,6 +13,9 @@ use anyhow::{Context as _, Result};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+#[cfg(target_os = "macos")]
+const STATUS_AUTOSAVE_NAME: &str = "Snipaste-RS";
+
 /// 菜单项 id。用字符串常量而不是句柄比较，好处是事件回传路径上
 /// 不需要跨线程共享任何对象。
 pub mod ids {
@@ -20,6 +23,7 @@ pub mod ids {
     pub const PASTE: &str = "snipaste.paste";
     pub const AUTOSTART: &str = "snipaste.autostart";
     pub const PIN_HELP: &str = "snipaste.pin_help";
+    pub const ABOUT: &str = "snipaste.about";
     pub const QUIT: &str = "snipaste.quit";
     #[cfg(target_os = "macos")]
     pub const PERMISSION: &str = "snipaste.permission";
@@ -36,6 +40,7 @@ pub enum MenuAction {
     ToggleAutostart,
     /// 弹出贴图操作说明。
     PinHelp,
+    About,
     #[cfg(target_os = "macos")]
     ScreenPermission,
     Quit,
@@ -52,6 +57,7 @@ impl MenuAction {
             ids::PASTE => Some(Self::Paste),
             ids::AUTOSTART => Some(Self::ToggleAutostart),
             ids::PIN_HELP => Some(Self::PinHelp),
+            ids::ABOUT => Some(Self::About),
             #[cfg(target_os = "macos")]
             ids::PERMISSION => Some(Self::ScreenPermission),
             ids::QUIT => Some(Self::Quit),
@@ -72,13 +78,16 @@ pub struct Tray {
 impl Tray {
     /// 创建托盘。`autostart_enabled` 用于初始化勾选态。
     pub fn new(autostart_enabled: bool) -> Result<Self> {
+        #[cfg(target_os = "macos")]
+        snipaste_platform::macos::prepare_menu_bar_position(STATUS_AUTOSAVE_NAME);
         let menu = Menu::new();
 
         let capture = MenuItem::with_id(ids::CAPTURE, "截图", true, None);
         let paste = MenuItem::with_id(ids::PASTE, "贴图", true, None);
         let autostart =
             CheckMenuItem::with_id(ids::AUTOSTART, "开机自启", true, autostart_enabled, None);
-        let pin_help = MenuItem::with_id(ids::PIN_HELP, "贴图操作说明…", true, None);
+        let pin_help = MenuItem::with_id(ids::PIN_HELP, "操作说明与快捷键…", true, None);
+        let about = MenuItem::with_id(ids::ABOUT, "关于映贴…", true, None);
         let quit = MenuItem::with_id(ids::QUIT, "退出", true, None);
 
         menu.append_items(&[
@@ -88,6 +97,7 @@ impl Tray {
             &autostart,
             &PredefinedMenuItem::separator(),
             &pin_help,
+            &about,
             &quit,
         ])
         .context("组装托盘菜单失败")?;
@@ -100,18 +110,27 @@ impl Tray {
 
         let builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("Snipaste-RS");
+            .with_tooltip(crate::APP_NAME);
         #[cfg(target_os = "macos")]
         let builder = builder
             .with_icon_templated(make_icon(32))
-            .with_autosave_name("Snipaste-RS");
+            .with_menu_on_left_click(true)
+            .with_menu_on_right_click(true)
+            .with_autosave_name(STATUS_AUTOSAVE_NAME);
         #[cfg(not(target_os = "macos"))]
         let builder = builder.with_icon(make_icon(32));
         let icon = builder
             .build()
             .context("创建托盘图标失败（当前桌面环境可能不支持系统托盘）")?;
 
-        log::info!("系统托盘已就绪");
+        #[cfg(target_os = "macos")]
+        if let Some(item) = icon.ns_status_item() {
+            // The retained status item stays alive in `icon`; AppKit runs on this thread.
+            let pointer = std::ptr::from_ref(&*item).cast_mut().cast();
+            unsafe { snipaste_platform::macos::configure_menu_bar_item(pointer) };
+        }
+
+        log::info!("系统托盘已就绪，位置：{:?}", icon.rect());
 
         Ok(Self {
             _icon: icon,

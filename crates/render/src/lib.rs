@@ -16,6 +16,8 @@
 //! 实时马赛克读取冻结底图；文字输入在 app 层由 egui 承载，导出使用同一字体。
 
 pub mod canvas;
+#[cfg(any(target_os = "macos", test))]
+mod font_file;
 pub mod fonts;
 pub mod theme;
 pub mod view;

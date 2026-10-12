@@ -15,7 +15,7 @@
 //! | 开机自启、保存对话框、操作说明 | Windows / macOS 14+ |
 //! | 图片 / 文本剪贴板 | ✅ arboard |
 //! | DPI 感知 | ⏳ 由 winit 代管，此处无需处理 |
-//! | 屏幕录制权限检查 | macOS TCC preflight / request |
+//! | 屏幕录制权限检查 | macOS TCC 只读检查 / 系统设置引导 |
 //!
 //! macOS 原生编译和交互验收步骤见 docs/macos.md。
 

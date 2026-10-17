@@ -40,6 +40,7 @@ pub fn draw(
     view: Viewport,
     background: Option<Background<'_>>,
     hotkey: &str,
+    paste_hotkey: &str,
 ) -> Vec<Command> {
     let mut cmds = Vec::new();
     let screen = ui.max_rect();
@@ -48,7 +49,14 @@ pub fn draw(
     paint_canvas(ui.painter(), ed, view, screen, background.as_ref());
     if !ed.is_snapping() && !ed.is_dragging() {
         if let Some(sel) = ed.doc.selection.filter(|s| !s.is_empty()) {
-            toolbar(&ctx, ed, screen, view.rect_to_points(&sel), &mut cmds);
+            toolbar(
+                &ctx,
+                ed,
+                screen,
+                view.rect_to_points(&sel),
+                paste_hotkey,
+                &mut cmds,
+            );
         }
     }
     text_editor(&ctx, ed, view, screen);
@@ -303,7 +311,15 @@ enum Icon {
     Confirm,
     Clear,
 }
-fn toolbar(ctx: &Context, ed: &mut Editor, screen: ERect, sel: ERect, cmds: &mut Vec<Command>) {
+fn toolbar(
+    ctx: &Context,
+    ed: &mut Editor,
+    screen: ERect,
+    sel: ERect,
+    paste_hotkey: &str,
+    cmds: &mut Vec<Command>,
+) {
+    let pin_hint = format!("贴到桌面（{paste_hotkey}）");
     let properties = ed.doc.tool != Tool::Select;
     let pos = toolbar_position(screen, sel, if properties { 78.0 } else { 40.0 });
     egui::Area::new(egui::Id::new("snipaste.toolbar"))
@@ -359,11 +375,7 @@ fn toolbar(ctx: &Context, ed: &mut Editor, screen: ERect, sel: ERect, cmds: &mut
                         separator(ui);
                         for (icon, hint, command) in [
                             (Icon::Qr, "识别选区内二维码（Q）", Command::RecognizeQr),
-                            (
-                                Icon::Pin,
-                                shortcut_hint("贴到桌面（F3）", "贴到桌面（⌘⇧1 / F3）"),
-                                Command::Pin,
-                            ),
+                            (Icon::Pin, pin_hint.as_str(), Command::Pin),
                             (
                                 Icon::Save,
                                 shortcut_hint("保存截图（Ctrl+S）", "保存截图（⌘S）"),
@@ -862,7 +874,7 @@ mod tests {
         };
         let mut cmds = Vec::new();
         let mut out = ctx.run_ui(input, |ui| {
-            cmds = draw(ui, ed, Viewport::new(Pos::ZERO, 1.0), None, "F1");
+            cmds = draw(ui, ed, Viewport::new(Pos::ZERO, 1.0), None, "F1", "F3");
         });
         // egui 的 `TexturesDelta` 有 drop 断言（debug 下会 panic），
         // 无头测试里没有真实纹理要上传，显式 clear 掉。
@@ -1132,6 +1144,7 @@ mod tests {
                             texture: &texture,
                         }),
                         "F1",
+                        "F3",
                     );
                 },
             );

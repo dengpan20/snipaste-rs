@@ -32,6 +32,7 @@ mod pin;
 mod qr;
 #[cfg(any(target_os = "macos", test))]
 mod screen_permission;
+mod settings;
 mod tray;
 mod ui;
 

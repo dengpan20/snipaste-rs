@@ -30,8 +30,9 @@ use snipaste_render::{fonts, theme, Viewport};
 
 use crate::editor::{Editor, QrResult};
 use crate::gfx::{GpuContext, SurfaceWindow};
-use crate::hotkey::{Action, Hotkeys};
+use crate::hotkey::{Action, Config as HotkeyConfig, Hotkeys};
 use crate::pin::{PinCommand, PinWindow};
+use crate::settings::{Command as SettingsCommand, SettingsWindow};
 use crate::tray::{MenuAction, Tray};
 use crate::ui::{self, Command};
 use crate::{color_picker, export, qr};
@@ -77,6 +78,9 @@ pub struct App {
 
     tray: Option<Tray>,
     hotkeys: Option<Hotkeys>,
+    hotkey_config: HotkeyConfig,
+    hotkey_config_error: Option<String>,
+    settings: Option<SettingsWindow>,
 
     /// 实际生效的截图热键名。F1 常常被占（本机就装了正版 Snipaste），
     /// 所以状态栏必须显示真实生效的那个键，否则用户会以为程序坏了。
@@ -103,6 +107,16 @@ pub struct App {
 impl App {
     pub fn new(proxy: EventLoopProxy<UserEvent>) -> Self {
         let egui_ctx = egui::Context::default();
+        let (hotkey_config, hotkey_config_error) = match HotkeyConfig::load() {
+            Ok(config) => (config, None),
+            Err(err) => {
+                log::warn!("热键设置读取失败，使用默认设置：{err:#}");
+                (
+                    HotkeyConfig::default(),
+                    Some(format!("读取设置失败，已使用默认热键：{err:#}")),
+                )
+            }
+        };
 
         let mut app = Self {
             proxy: proxy.clone(),
@@ -121,6 +135,9 @@ impl App {
             graphics_release_deadline: None,
             tray: None,
             hotkeys: None,
+            hotkey_config,
+            hotkey_config_error,
+            settings: None,
             hotkey_label: "读取中…".to_owned(),
             // 启动时**不**显示遮罩：本程序是常驻托盘的，
             // 只有热键或托盘菜单才会真正进入截图。见 `start_capture`。
@@ -191,21 +208,13 @@ impl App {
             Ok(t) => self.tray = Some(t),
             Err(err) => log::warn!("托盘不可用：{err:#}"),
         }
-        match Hotkeys::register() {
-            Ok(h) => {
-                self.hotkey_label = h.capture_label.clone();
-                if let Some(tray) = self.tray.as_ref() {
-                    tray.set_hotkey_labels(&h.capture_label, &h.paste_label);
-                }
-                self.hotkeys = Some(h);
-            }
-            Err(err) => {
-                log::error!("全局热键注册失败：{err:#}（仍可用托盘或界面按钮触发）");
-                self.hotkey_label = "注册失败，请用托盘菜单".to_owned();
-            }
-        }
+        self.restore_hotkeys();
 
         self.started = true;
+        #[cfg(debug_assertions)]
+        if std::env::var_os("SNIPASTE_SHOW_HOTKEY_SETTINGS").is_some() {
+            self.open_hotkey_settings(event_loop);
+        }
         self.memory_profile = crate::memory_profile::Profile::from_env();
         #[cfg(all(debug_assertions, target_os = "macos"))]
         if std::env::var("SNIPASTE_VERIFY_MENU_BAR").as_deref() == Ok("1") {
@@ -251,6 +260,98 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    fn restore_hotkeys(&mut self) {
+        match Hotkeys::register(&self.hotkey_config) {
+            Ok(h) => {
+                self.hotkey_label = h.capture_label.clone();
+                if let Some(tray) = self.tray.as_ref() {
+                    tray.set_hotkey_labels(&h.capture_label, &h.paste_label);
+                }
+                self.hotkeys = Some(h);
+            }
+            Err(err) => {
+                log::error!("全局热键注册失败：{err:#}（仍可用托盘或界面按钮触发）");
+                self.hotkey_label = "注册失败，请用托盘菜单".to_owned();
+                if let Some(tray) = self.tray.as_ref() {
+                    tray.set_hotkey_labels(&self.hotkey_label, "未注册");
+                }
+            }
+        }
+    }
+
+    fn open_hotkey_settings(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(settings) = self.settings.as_ref() {
+            settings.surface.window.set_minimized(false);
+            settings.surface.window.focus_window();
+            return;
+        }
+        self.set_overlay_visible(false);
+        let labels = [
+            self.hotkey_label.clone(),
+            self.hotkeys
+                .as_ref()
+                .map(|keys| keys.paste_label.clone())
+                .unwrap_or_else(|| "未注册".into()),
+        ];
+        match SettingsWindow::new(
+            event_loop,
+            &mut self.gfx,
+            self.hotkey_config.clone(),
+            labels,
+            self.hotkey_config_error.clone(),
+        ) {
+            Ok(settings) => {
+                self.settings = Some(settings);
+                self.hotkeys = None;
+                self.graphics_release_deadline = None;
+            }
+            Err(err) => {
+                log::error!("打开热键设置失败：{err:#}");
+                snipaste_platform::dialog::show_information(
+                    "打开热键设置失败",
+                    &format!("{err:#}"),
+                );
+                self.schedule_graphics_release();
+            }
+        }
+    }
+
+    fn handle_settings_command(&mut self, command: SettingsCommand) {
+        let Some(settings) = self.settings.as_ref() else {
+            return;
+        };
+        if matches!(command, SettingsCommand::Save) {
+            let config = settings.draft.clone();
+            let result = (|| -> Result<Hotkeys> {
+                let hotkeys = Hotkeys::register(&config)?;
+                hotkeys.require_custom_active(&config)?;
+                config.save()?;
+                Ok(hotkeys)
+            })();
+            match result {
+                Ok(hotkeys) => {
+                    self.hotkey_config = config;
+                    self.hotkey_config_error = None;
+                    self.hotkey_label = hotkeys.capture_label.clone();
+                    if let Some(tray) = self.tray.as_ref() {
+                        tray.set_hotkey_labels(&hotkeys.capture_label, &hotkeys.paste_label);
+                    }
+                    self.hotkeys = Some(hotkeys);
+                }
+                Err(err) => {
+                    let settings = self.settings.as_mut().unwrap();
+                    settings.error = Some(format!("保存失败，原设置已保留。\n{err:#}"));
+                    settings.surface.window.request_redraw();
+                    return;
+                }
+            }
+        } else {
+            self.restore_hotkeys();
+        }
+        self.settings = None;
+        self.schedule_graphics_release();
     }
 
     fn ensure_graphics(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
@@ -558,16 +659,19 @@ impl App {
     }
 
     fn schedule_graphics_release(&mut self) {
-        self.graphics_release_deadline =
-            if !self.visible && self.pins.is_empty() && self.gfx.is_some() {
-                Some(std::time::Instant::now() + std::time::Duration::from_secs(3))
-            } else {
-                None
-            };
+        self.graphics_release_deadline = if !self.visible
+            && self.pins.is_empty()
+            && self.settings.is_none()
+            && self.gfx.is_some()
+        {
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(3))
+        } else {
+            None
+        };
     }
 
     fn release_idle_graphics(&mut self) {
-        if self.visible || !self.pins.is_empty() {
+        if self.visible || !self.pins.is_empty() || self.settings.is_some() {
             return;
         }
         self.overlay = None;
@@ -629,6 +733,11 @@ impl App {
             }
         }
         let hotkey_label = self.hotkey_label.as_str();
+        let paste_label = self
+            .hotkeys
+            .as_ref()
+            .map(|keys| keys.paste_label.as_str())
+            .unwrap_or("未注册");
         let editor = &mut self.editor;
         let background = self
             .snapshot
@@ -638,7 +747,7 @@ impl App {
 
         let mut cmds = Vec::new();
         let mut full = self.egui_ctx.run_ui(raw_input, |ui| {
-            cmds = ui::draw(ui, editor, view, background, hotkey_label);
+            cmds = ui::draw(ui, editor, view, background, hotkey_label, paste_label);
         });
         self.repaint_deadline = full
             .viewport_output
@@ -1308,6 +1417,16 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if self.settings.as_ref().map(|s| s.surface.window.id()) == Some(id) {
+            let command = self
+                .gfx
+                .as_ref()
+                .and_then(|gfx| self.settings.as_mut()?.event(gfx, &event));
+            if let Some(command) = command {
+                self.handle_settings_command(command);
+            }
+            return;
+        }
         if let Some(index) = self.pins.iter().position(|p| p.surface.window.id() == id) {
             let command = self
                 .gfx
@@ -1749,7 +1868,11 @@ impl App {
     }
 
     fn handle_menu(&mut self, event_loop: &ActiveEventLoop, action: MenuAction) {
+        if matches!(action, MenuAction::Capture | MenuAction::Paste) && self.settings.is_some() {
+            self.handle_settings_command(SettingsCommand::Cancel);
+        }
         match action {
+            MenuAction::HotkeySettings => self.open_hotkey_settings(event_loop),
             MenuAction::Capture => {
                 self.start_capture(event_loop);
             }

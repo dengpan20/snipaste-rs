@@ -22,6 +22,7 @@ pub mod ids {
     pub const CAPTURE: &str = "snipaste.capture";
     pub const PASTE: &str = "snipaste.paste";
     pub const AUTOSTART: &str = "snipaste.autostart";
+    pub const HOTKEY_SETTINGS: &str = "snipaste.hotkey_settings";
     pub const PIN_HELP: &str = "snipaste.pin_help";
     pub const ABOUT: &str = "snipaste.about";
     pub const QUIT: &str = "snipaste.quit";
@@ -38,6 +39,7 @@ pub enum MenuAction {
     Paste,
     /// 用户点了"开机自启"勾选项，需要读取勾选态并落盘。
     ToggleAutostart,
+    HotkeySettings,
     /// 弹出贴图操作说明。
     PinHelp,
     About,
@@ -56,6 +58,7 @@ impl MenuAction {
             ids::CAPTURE => Some(Self::Capture),
             ids::PASTE => Some(Self::Paste),
             ids::AUTOSTART => Some(Self::ToggleAutostart),
+            ids::HOTKEY_SETTINGS => Some(Self::HotkeySettings),
             ids::PIN_HELP => Some(Self::PinHelp),
             ids::ABOUT => Some(Self::About),
             #[cfg(target_os = "macos")]
@@ -87,6 +90,7 @@ impl Tray {
         let autostart =
             CheckMenuItem::with_id(ids::AUTOSTART, "开机自启", true, autostart_enabled, None);
         let pin_help = MenuItem::with_id(ids::PIN_HELP, "操作说明与快捷键…", true, None);
+        let hotkey_settings = MenuItem::with_id(ids::HOTKEY_SETTINGS, "热键设置…", true, None);
         let about = MenuItem::with_id(ids::ABOUT, "关于映贴…", true, None);
         let quit = MenuItem::with_id(ids::QUIT, "退出", true, None);
 
@@ -95,6 +99,7 @@ impl Tray {
             &paste,
             &PredefinedMenuItem::separator(),
             &autostart,
+            &hotkey_settings,
             &PredefinedMenuItem::separator(),
             &pin_help,
             &about,

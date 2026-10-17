@@ -32,6 +32,8 @@ rqrr.workspace = true
 log.workspace = true
 env_logger.workspace = true
 anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 qrcode = { version = "0.14", default-features = false }

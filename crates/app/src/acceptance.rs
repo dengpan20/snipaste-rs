@@ -110,6 +110,7 @@ fn render_ui_with_input(
                 texture: &texture,
             }),
             ui::shortcut_hint("F1", "⌘⇧2"),
+            ui::shortcut_hint("F3", "⌘⇧1 / F3"),
         );
     });
     // Area 的首帧测量完成后，保留纹理增量、使用后续帧的最终布局。
@@ -124,6 +125,7 @@ fn render_ui_with_input(
                     texture: &texture,
                 }),
                 ui::shortcut_hint("F1", "⌘⇧2"),
+                ui::shortcut_hint("F3", "⌘⇧1 / F3"),
             );
         }));
     }

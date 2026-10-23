@@ -336,14 +336,29 @@ void sp_screen_permission_prompt(const char *title, const char *message) {
     }
 }
 
-char *sp_save_path(void) {
+char *sp_save_path(const char *directory, int jpeg) {
     @autoreleasepool {
         NSSavePanel *panel = NSSavePanel.savePanel;
         panel.title = @"保存截图";
-        panel.nameFieldStringValue = @"截图.png";
+        panel.nameFieldStringValue = jpeg ? @"截图.jpg" : @"截图.png";
+        if (directory) panel.directoryURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:directory] isDirectory:YES];
         panel.canCreateDirectories = YES;
         panel.allowedContentTypes = @[[UTType typeWithIdentifier:@"public.png"],
                                      [UTType typeWithIdentifier:@"public.jpeg"]];
+        [NSApp activate];
+        if ([panel runModal] != NSModalResponseOK) return NULL;
+        return strdup(panel.URL.fileSystemRepresentation);
+    }
+}
+
+char *sp_choose_directory(void) {
+    @autoreleasepool {
+        NSOpenPanel *panel = NSOpenPanel.openPanel;
+        panel.title = @"选择截图保存目录";
+        panel.canChooseDirectories = YES;
+        panel.canChooseFiles = NO;
+        panel.allowsMultipleSelection = NO;
+        panel.canCreateDirectories = YES;
         [NSApp activate];
         if ([panel runModal] != NSModalResponseOK) return NULL;
         return strdup(panel.URL.fileSystemRepresentation);

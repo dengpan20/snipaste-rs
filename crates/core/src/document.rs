@@ -243,6 +243,7 @@ fn is_meaningful(a: &Annotation) -> bool {
             crate::annotation::MosaicRegion::Path(pts) => !pts.is_empty(),
         },
         Annotation::Text { content, .. } => !content.trim().is_empty(),
+        Annotation::Sequence { number, radius, .. } => *number > 0 && *radius > 0.0,
     }
 }
 

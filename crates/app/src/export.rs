@@ -3,7 +3,7 @@ use crate::gfx::{GpuContext, SurfaceWindow};
 use anyhow::{Context as _, Result};
 use snipaste_capture::Snapshot;
 use snipaste_core::Document;
-use snipaste_render::{canvas, fonts, Viewport};
+use snipaste_render::{canvas, fonts, theme, Viewport};
 
 #[cfg(debug_assertions)]
 pub fn compose(gfx: &GpuContext, snapshot: &Snapshot, doc: &Document) -> Result<image::RgbaImage> {
@@ -22,11 +22,15 @@ pub fn compose_with_texture(
     }
     let bounds = snapshot.crop_bounds(selection)?;
     let ctx = egui::Context::default();
-    if doc
-        .items
-        .iter()
-        .any(|item| matches!(item, snipaste_core::Annotation::Text { .. }))
-    {
+    // Preview uses the light theme's glyph coverage transfer function as well
+    // as its font family. Match both to preserve text and badge edge pixels.
+    theme::apply(&ctx);
+    if doc.items.iter().any(|item| {
+        matches!(
+            item,
+            snipaste_core::Annotation::Text { .. } | snipaste_core::Annotation::Sequence { .. }
+        )
+    }) {
         fonts::install(&ctx);
     }
     ctx.set_pixels_per_point(1.0);

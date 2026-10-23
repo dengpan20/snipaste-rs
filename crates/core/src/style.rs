@@ -72,6 +72,7 @@ pub enum Tool {
     Marker,
     Mosaic,
     Text,
+    Sequence,
     Eraser,
 }
 
@@ -79,7 +80,7 @@ impl Tool {
     /// 工具栏显示顺序，同时也是 `Tab` 的循环顺序。
     ///
     /// 刻意把高频工具（矩形 / 箭头）排在前面：截图标注场景下这两个占了绝大多数使用量。
-    pub const ALL: [Tool; 9] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Select,
         Tool::Rect,
         Tool::Ellipse,
@@ -88,6 +89,7 @@ impl Tool {
         Tool::Marker,
         Tool::Mosaic,
         Tool::Text,
+        Tool::Sequence,
         Tool::Eraser,
     ];
 
@@ -124,6 +126,7 @@ impl Tool {
             Tool::Marker => "记号笔",
             Tool::Mosaic => "马赛克",
             Tool::Text => "文字",
+            Tool::Sequence => "序号",
             Tool::Eraser => "橡皮擦",
         }
     }
@@ -139,6 +142,7 @@ impl Tool {
             Tool::Marker => Some('H'),
             Tool::Mosaic => Some('M'),
             Tool::Text => Some('T'),
+            Tool::Sequence => Some('N'),
             Tool::Eraser => Some('E'),
         }
     }

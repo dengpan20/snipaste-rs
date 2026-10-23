@@ -41,6 +41,56 @@ pub fn fixture() -> Result<Snapshot> {
     })
 }
 
+pub fn verify_sequences(gfx: &GpuContext, directory: &std::path::Path) -> Result<()> {
+    let shot = Snapshot {
+        origin: Pos::ZERO,
+        image: image::RgbaImage::from_pixel(1100, 760, image::Rgba([240, 245, 250, 255])),
+    };
+    let mut ed = Editor::new();
+    ed.set_selection(Some(Rect::new(160.0, 120.0, 760.0, 450.0)));
+    ed.sequence_size = 48.0;
+    ed.set_tool(Tool::Sequence);
+    for x in [250.0, 400.0, 550.0] {
+        ed.add_sequence(Pos::new(x, 250.0));
+    }
+    ed.selected_item = None;
+    let exported = export::compose(gfx, &shot, &ed.doc)?;
+    exported.save(directory.join("sequence-export.png"))?;
+    render_ui(gfx, &shot, &mut ed, &directory.join("sequence-ui.png"))?;
+    let preview = image::open(directory.join("sequence-ui.png"))?.to_rgba8();
+    for x in [250u32, 400, 550] {
+        let digits = (x - 16..x + 16)
+            .flat_map(|x| (234..266).map(move |y| (x, y)))
+            .filter(|(x, y)| {
+                let p = exported.get_pixel(x - 160, y - 120);
+                p[0] > 245 && p[1] > 245 && p[2] > 245
+            })
+            .count();
+        anyhow::ensure!(digits > 5, "序号数字没有导出");
+        for y in 228..272 {
+            for px in x - 22..x + 22 {
+                anyhow::ensure!(
+                    same_pixel(
+                        preview.get_pixel(px, y),
+                        exported.get_pixel(px - 160, y - 120)
+                    ),
+                    "序号预览与导出不一致 ({px}, {y})：预览 {:?}，导出 {:?}",
+                    preview.get_pixel(px, y),
+                    exported.get_pixel(px - 160, y - 120)
+                );
+            }
+        }
+    }
+    anyhow::ensure!(ed.undo(), "序号无法撤销");
+    anyhow::ensure!(ed.next_sequence_number() == 3, "撤销后序号没有回退");
+    anyhow::ensure!(ed.redo(), "序号无法重做");
+    anyhow::ensure!(
+        export::compose(gfx, &shot, &ed.doc)? == exported,
+        "序号重做导出不一致"
+    );
+    Ok(())
+}
+
 pub fn editor() -> Editor {
     let mut ed = Editor::new();
     ed.reset_session(Rect::new(0.0, 0.0, 1100.0, 760.0), false);
@@ -110,6 +160,7 @@ fn render_ui_with_input(
                 texture: &texture,
             }),
             ui::shortcut_hint("F1", "⌘⇧2"),
+            ui::shortcut_hint("F3", "⌘⇧1 / F3"),
         );
     });
     // Area 的首帧测量完成后，保留纹理增量、使用后续帧的最终布局。
@@ -124,6 +175,7 @@ fn render_ui_with_input(
                     texture: &texture,
                 }),
                 ui::shortcut_hint("F1", "⌘⇧2"),
+                ui::shortcut_hint("F3", "⌘⇧1 / F3"),
             );
         }));
     }

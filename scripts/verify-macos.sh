@@ -4,12 +4,12 @@ cd "$(dirname "$0")/.."
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || { echo "需要 Apple Silicon Mac" >&2; exit 1; }
 export PATH="$HOME/.cargo/bin:$PATH"
 export MACOSX_DEPLOYMENT_TARGET=14.0
-unset SNIPASTE_MACOS_CHECK_ONLY SNIPASTE_VERIFY_DIR SNIPASTE_VERIFY_PERMISSION_PATH SNIPASTE_MEMORY_PROFILE_DIR SNIPASTE_MEMORY_PROFILE_PINS SNIPASTE_SMOKE_MS
+unset SNIPASTE_MACOS_CHECK_ONLY SNIPASTE_VERIFY_DIR SNIPASTE_VERIFY_SETTINGS_DIR SNIPASTE_SETTINGS_PATH SNIPASTE_VERIFY_PERMISSION_PATH SNIPASTE_MEMORY_PROFILE_DIR SNIPASTE_MEMORY_PROFILE_PINS SNIPASTE_SMOKE_MS
 target=aarch64-apple-darwin
 mode="${1:-}"
 profile="${2:-}"
-[[ $# -le 2 && ( -z "$mode" || "$mode" == --memory || "$mode" == --memory-pins ) && ( -z "$profile" || ( "$profile" == --release && -n "$mode" ) ) ]] || {
-    echo "用法: bash scripts/verify-macos.sh [--memory|--memory-pins [--release]]" >&2; exit 1;
+[[ $# -le 2 && ( -z "$mode" || "$mode" == --settings || "$mode" == --memory || "$mode" == --memory-pins ) && ( -z "$profile" || ( "$profile" == --release && ( "$mode" == --memory || "$mode" == --memory-pins ) ) ) ]] || {
+    echo "用法: bash scripts/verify-macos.sh [--settings|--memory|--memory-pins [--release]]" >&2; exit 1;
 }
 build_profile=debug
 if [[ "$profile" == --release ]]; then
@@ -30,7 +30,9 @@ sed -e "s/@VERSION@/$version/g" -e 's/io.snipaste-rs.app/io.snipaste-rs.verify/g
     packaging/macos/Info.plist > "$app/Contents/Info.plist"
 /usr/bin/python3 scripts/sign-macos.py "$app"
 export RUST_LOG=info
-if [[ -n "$mode" ]]; then
+if [[ "$mode" == --settings ]]; then
+    export SNIPASTE_VERIFY_SETTINGS_DIR="$dir"
+elif [[ -n "$mode" ]]; then
     export SNIPASTE_MEMORY_PROFILE_DIR="$dir"
     if [[ "$mode" == --memory-pins ]]; then export SNIPASTE_MEMORY_PROFILE_PINS=1; fi
 else
@@ -38,9 +40,17 @@ else
     cargo test --locked -p snipaste-app --target "$target" write_acceptance_fixture -- --ignored
     export SNIPASTE_VERIFY_DIR="$dir"
 fi
-echo "即将进行桌面验收，请保持鼠标在待测显示器内，暂时不要操作鼠标键盘。"
+if [[ "$mode" == --settings ]]; then
+    echo "即将验收设置、序号标注与快捷键回滚，无需屏幕录制权限。"
+else
+    echo "即将进行桌面验收，请保持鼠标在待测显示器内，暂时不要操作鼠标键盘。"
+fi
 "$app/Contents/MacOS/snipaste-rs" 2>&1 | tee "$dir/application.log"
-if [[ -n "$mode" ]]; then
+if [[ "$mode" == --settings ]]; then
+    [[ -f "$dir/settings-result.txt" ]] && grep -q '^PASS:' "$dir/settings-result.txt" || {
+        echo "设置与序号验收未通过。请查看 $dir/application.log。" >&2; exit 1;
+    }
+elif [[ -n "$mode" ]]; then
     rows=14
     last_stage=idle-3
     if [[ "$mode" == --memory-pins ]]; then rows=18; last_stage=pin-idle; fi

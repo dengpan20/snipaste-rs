@@ -40,6 +40,7 @@ pub fn draw(
     view: Viewport,
     background: Option<Background<'_>>,
     hotkey: &str,
+    paste_hotkey: &str,
 ) -> Vec<Command> {
     let mut cmds = Vec::new();
     let screen = ui.max_rect();
@@ -48,7 +49,14 @@ pub fn draw(
     paint_canvas(ui.painter(), ed, view, screen, background.as_ref());
     if !ed.is_snapping() && !ed.is_dragging() {
         if let Some(sel) = ed.doc.selection.filter(|s| !s.is_empty()) {
-            toolbar(&ctx, ed, screen, view.rect_to_points(&sel), &mut cmds);
+            toolbar(
+                &ctx,
+                ed,
+                screen,
+                view.rect_to_points(&sel),
+                paste_hotkey,
+                &mut cmds,
+            );
         }
     }
     text_editor(&ctx, ed, view, screen);
@@ -201,6 +209,9 @@ fn handle_canvas_input(
             {
                 ed.start_text(view.to_vss(p));
             }
+            if ed.doc.tool == Tool::Sequence {
+                ed.add_sequence(view.to_vss(p));
+            }
         }
     }
     if resp.double_clicked_by(egui::PointerButton::Primary)
@@ -213,7 +224,7 @@ fn handle_canvas_input(
         if ed.text.is_some() {
             ed.commit_text();
         } else if ed.doc.selection.is_some() && !ed.is_snapping() {
-            ed.reset_session(view.screen_rect(screen.size()), true);
+            ed.reset_session(view.screen_rect(screen.size()), ed.window_snapping);
         } else {
             cmds.push(Command::Cancel);
         }
@@ -274,7 +285,7 @@ fn handle_cursor(h: Handle) -> egui::CursorIcon {
     }
 }
 
-const TOOLBAR_WIDTH: f32 = 566.0;
+const TOOLBAR_WIDTH: f32 = 598.0;
 fn toolbar_position(screen: ERect, sel: ERect, height: f32) -> egui::Pos2 {
     let width = TOOLBAR_WIDTH.min(screen.width() - 8.0);
     let x = (sel.right() - width).clamp(
@@ -303,7 +314,14 @@ enum Icon {
     Confirm,
     Clear,
 }
-fn toolbar(ctx: &Context, ed: &mut Editor, screen: ERect, sel: ERect, cmds: &mut Vec<Command>) {
+fn toolbar(
+    ctx: &Context,
+    ed: &mut Editor,
+    screen: ERect,
+    sel: ERect,
+    paste_hotkey: &str,
+    cmds: &mut Vec<Command>,
+) {
     let properties = ed.doc.tool != Tool::Select;
     let pos = toolbar_position(screen, sel, if properties { 78.0 } else { 40.0 });
     egui::Area::new(egui::Id::new("snipaste.toolbar"))
@@ -357,13 +375,10 @@ fn toolbar(ctx: &Context, ed: &mut Editor, screen: ERect, sel: ERect, cmds: &mut
                             }
                         }
                         separator(ui);
+                        let paste_hint = format!("贴到桌面（{paste_hotkey}）");
                         for (icon, hint, command) in [
                             (Icon::Qr, "识别选区内二维码（Q）", Command::RecognizeQr),
-                            (
-                                Icon::Pin,
-                                shortcut_hint("贴到桌面（F3）", "贴到桌面（⌘⇧1 / F3）"),
-                                Command::Pin,
-                            ),
+                            (Icon::Pin, paste_hint.as_str(), Command::Pin),
                             (
                                 Icon::Save,
                                 shortcut_hint("保存截图（Ctrl+S）", "保存截图（⌘S）"),
@@ -431,6 +446,15 @@ fn toolbar(ctx: &Context, ed: &mut Editor, screen: ERect, sel: ERect, cmds: &mut
                             }
                             separator(ui);
                             match ed.doc.tool {
+                                Tool::Sequence => {
+                                    ui.label("大小");
+                                    ui.add(
+                                        egui::DragValue::new(&mut ed.sequence_size)
+                                            .range(20.0..=96.0)
+                                            .suffix(" px"),
+                                    );
+                                    ui.label(format!("下一个：{}", ed.next_sequence_number()));
+                                }
                                 Tool::Text => {
                                     ui.label(egui::RichText::new("字号").color(theme::TOOLBAR_FG));
                                     ui.add(
@@ -584,6 +608,16 @@ fn paint_icon(p: &egui::Painter, r: ERect, icon: Icon, color: Color32) {
             line((0.0, 0.1), (1.0, 0.1));
             line((0.5, 0.1), (0.5, 1.0));
             line((0.25, 1.0), (0.75, 1.0));
+        }
+        Icon::Tool(Tool::Sequence) => {
+            p.circle_stroke(r.center(), r.width() * 0.5, s);
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                "1",
+                FontId::proportional(r.height() * 0.85),
+                color,
+            );
         }
         Icon::Tool(Tool::Eraser) | Icon::Clear => {
             line((0.0, 0.7), (0.65, 0.0));
@@ -862,7 +896,7 @@ mod tests {
         };
         let mut cmds = Vec::new();
         let mut out = ctx.run_ui(input, |ui| {
-            cmds = draw(ui, ed, Viewport::new(Pos::ZERO, 1.0), None, "F1");
+            cmds = draw(ui, ed, Viewport::new(Pos::ZERO, 1.0), None, "F1", "F3");
         });
         // egui 的 `TexturesDelta` 有 drop 断言（debug 下会 panic），
         // 无头测试里没有真实纹理要上传，显式 clear 掉。
@@ -887,6 +921,30 @@ mod tests {
         // 右下角在 (600, 500)
         ed.set_selection(Some(Rect::new(200.0, 200.0, 400.0, 300.0)));
         ed
+    }
+
+    #[test]
+    fn clicking_with_sequence_tool_adds_exactly_one_number_per_click() {
+        let ctx = Context::default();
+        let mut ed = select_editor();
+        ed.set_tool(Tool::Sequence);
+        run_frame(&ctx, &mut ed, vec![], 0.0);
+        for (i, x) in [300.0, 400.0, 500.0].into_iter().enumerate() {
+            let p = egui::pos2(x, 350.0);
+            let time = 1.0 + i as f64;
+            run_frame(
+                &ctx,
+                &mut ed,
+                vec![egui::Event::PointerMoved(p), button_event(p, true)],
+                time,
+            );
+            run_frame(&ctx, &mut ed, vec![button_event(p, false)], time + 0.05);
+            assert_eq!(ed.doc.items.len(), i + 1);
+            assert!(
+                matches!(ed.doc.items[i], snipaste_core::Annotation::Sequence { number, .. } if number == i as u32 + 1)
+            );
+        }
+        assert_eq!(ed.history.undo_len(), 3);
     }
 
     /// 回归测试：角柄必须按**按下点**命中，而不是被 egui 判定为拖拽那一刻的
@@ -1132,6 +1190,7 @@ mod tests {
                             texture: &texture,
                         }),
                         "F1",
+                        "F3",
                     );
                 },
             );

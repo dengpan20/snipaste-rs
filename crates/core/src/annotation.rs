@@ -87,6 +87,12 @@ pub enum Annotation {
         content: String,
         style: Style,
     },
+    Sequence {
+        center: Pos,
+        number: u32,
+        radius: f32,
+        style: Style,
+    },
 }
 
 impl Annotation {
@@ -98,7 +104,8 @@ impl Annotation {
             | Self::Path { style, .. }
             | Self::Mosaic { style, .. }
             | Self::Eraser { style, .. }
-            | Self::Text { style, .. } => style,
+            | Self::Text { style, .. }
+            | Self::Sequence { style, .. } => style,
         }
     }
 
@@ -110,7 +117,8 @@ impl Annotation {
             | Self::Path { style, .. }
             | Self::Mosaic { style, .. }
             | Self::Eraser { style, .. }
-            | Self::Text { style, .. } => style,
+            | Self::Text { style, .. }
+            | Self::Sequence { style, .. } => style,
         }
     }
 
@@ -121,7 +129,10 @@ impl Annotation {
 
     /// 是否为"可调笔宽"图元。
     pub fn supports_stroke_width(&self) -> bool {
-        !matches!(self, Self::Text { .. } | Self::Mosaic { .. })
+        !matches!(
+            self,
+            Self::Text { .. } | Self::Mosaic { .. } | Self::Sequence { .. }
+        )
     }
 
     /// 图元的外接矩形（VSS 物理像素）。
@@ -129,6 +140,14 @@ impl Annotation {
     /// 会额外把描边宽度的一半算进去，否则细线的包围盒会漏掉边缘，
     /// 导致"框选导出"时裁掉半个描边。
     pub fn bounds(&self) -> Rect {
+        if let Self::Sequence { center, radius, .. } = self {
+            return Rect::new(
+                center.x - radius,
+                center.y - radius,
+                radius * 2.0,
+                radius * 2.0,
+            );
+        }
         if let Self::Mosaic {
             region: MosaicRegion::Rect(r),
             ..
@@ -146,6 +165,7 @@ impl Annotation {
             Self::Path { points, .. } => bounding_of(points),
             Self::Mosaic { region, .. } | Self::Eraser { region, .. } => region.bounds(),
             Self::Text { rect, .. } => *rect,
+            Self::Sequence { .. } => unreachable!(),
         };
         raw.expand(self.style().stroke_width * 0.5)
     }
@@ -174,6 +194,7 @@ impl Annotation {
                 }
             },
             Self::Text { rect, .. } => *rect = rect.translate(dx, dy),
+            Self::Sequence { center, .. } => *center = *center + Pos::new(dx, dy),
         }
     }
 
@@ -219,6 +240,7 @@ impl Annotation {
                 }
             },
             Self::Text { rect, .. } => rect.contains(p),
+            Self::Sequence { center, radius, .. } => center.distance(p) <= radius + extra,
         }
     }
 
@@ -239,6 +261,7 @@ impl Annotation {
             Self::Mosaic { .. } => "马赛克",
             Self::Eraser { .. } => "橡皮擦",
             Self::Text { .. } => "文字",
+            Self::Sequence { .. } => "序号",
         }
     }
 }

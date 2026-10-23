@@ -131,3 +131,25 @@ Windows 上的 Rust-only 检查显式设置 `SNIPASTE_MACOS_CHECK_ONLY=1`，平�
 新增的坐标测试覆盖负原点 Retina 显示器，以及 1× 外接屏与 2× 内屏上的跨屏窗口裁剪；LaunchAgent 测试覆盖中文、空格和 XML 特殊字符路径。原生显示切换验收还用上下不对称的像素标记检测截图翻转。
 
 执行方式及当前单屏截图范围见 [Mac 指南](macos.md)。
+
+## 设置面板与序号标注（2026-10-23）
+
+新增托盘 / 菜单栏“设置…”入口，提供截图与贴图快捷键、默认保存文件夹、PNG / JPEG、开机自启、窗口预选和标注偏好。配置按用户保存为 TOML；写入失败或快捷键注册失败时保留原设置。序号工具使用 N，点击生成圆形数字，共用原有文档、移动、删除、撤销 / 重做和图像导出流程。
+
+| 检查 | 结果 |
+|---|---|
+| macOS workspace 单元测试 | 156 通过，1 项验收图片生成任务默认忽略 |
+| macOS workspace / all-targets clippy，`-D warnings` | 通过 |
+| Windows GNU workspace / all-targets check 和 clippy，`-D warnings` | 在 Mac 上交叉检查通过；未进行 Windows 链接或真机交互验收 |
+| Mac 设置窗口、中文字体和配置保存 | 原生验收通过 |
+| 重复快捷键、模拟保存失败后的快捷键回滚 | 原生验收通过 |
+| 序号点击、移动、删除、编号、撤销重做 | 单元测试通过 |
+| 序号预览 / 导出逐像素对比、重做导出一致性 | Metal 原生验收通过 |
+| 设置窗口关闭后的 GPU 释放 | 独立设置验收通过 |
+| 原有截图 / 标注 / 取色 / 二维码 / 剪贴板 / 贴图回归 | 完整原生验收通过 |
+
+完整回归记录为 `dist/macos-verification/20261023-205512-49959/`，独立设置与序号验收记录为 `dist/macos-verification/20261023-205637-50609/`。两次验收均使用独立配置，不修改日常设置。`settings-ui.png` 和 `settings-small-error-ui.png` 已目视检查，覆盖正常尺寸与最小窗口的错误提示布局。
+
+独立设置验收命令为 `bash scripts/verify-macos.sh --settings`，无需屏幕录制权限。它还会生成 `sequence-ui.png` 和 `sequence-export.png`。本次将导出的数字字体和文字边缘处理统一到预览主题，修复了纯序号图片导出与预览不同的问题。
+
+系统保存面板与文件夹选择已实现 Mac / Windows 各自的原生接口；Windows 热键、保存和文件夹选择的实际桌面交互仍需 Windows 真机确认。

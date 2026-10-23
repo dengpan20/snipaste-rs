@@ -50,7 +50,8 @@ extern "C" {
     fn sp_screen_permission_prompt(title: *const c_char, message: *const c_char);
     fn sp_configure_menu_bar_item(item: *mut c_void);
     fn sp_prepare_menu_bar_position(autosave_name: *const c_char);
-    fn sp_save_path() -> *mut c_char;
+    fn sp_save_path(directory: *const c_char, jpeg: i32) -> *mut c_char;
+    fn sp_choose_directory() -> *mut c_char;
     fn sp_chinese_font() -> *mut c_char;
     fn sp_memory(out: *mut NativeMemory) -> i32;
     fn sp_begin_capture();
@@ -284,9 +285,31 @@ pub fn show_screen_permission_prompt(app_name: &str) {
 }
 
 pub fn save_image_path() -> Option<PathBuf> {
+    save_image_path_with_options(None, false)
+}
+
+pub fn save_image_path_with_options(
+    directory: Option<&std::path::Path>,
+    jpeg: bool,
+) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let directory = directory.and_then(|p| CString::new(p.as_os_str().as_bytes()).ok());
+    let raw = unsafe {
+        sp_save_path(
+            directory.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
+            i32::from(jpeg),
+        )
+    };
+    take_path(raw)
+}
+
+pub fn choose_directory() -> Option<PathBuf> {
+    take_path(unsafe { sp_choose_directory() })
+}
+
+fn take_path(raw: *mut c_char) -> Option<PathBuf> {
     // Preserve non-UTF8 filesystem paths instead of replacing bytes.
     use std::os::unix::ffi::OsStrExt;
-    let raw = unsafe { sp_save_path() };
     if raw.is_null() {
         return None;
     }

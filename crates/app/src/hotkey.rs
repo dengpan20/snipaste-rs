@@ -71,95 +71,144 @@ impl Hotkeys {
     /// 只有"连热键管理器都建不起来"才算致命错误；某个具体按键被占用不是错误，
     /// 我们会降级到下一位候选，并把这个事实显著地告诉用户。
     pub fn register() -> Result<Self> {
-        let manager = GlobalHotKeyManager::new().context("初始化全局热键管理器失败")?;
+        let mut hotkeys = Self {
+            _manager: GlobalHotKeyManager::new().context("初始化全局热键管理器失败")?,
+            capture: None,
+            paste: None,
+            capture_alias: None,
+            paste_alias: None,
+            capture_label: String::new(),
+            paste_label: String::new(),
+        };
+        hotkeys.reconfigure("", "")?;
+        Ok(hotkeys)
+    }
 
-        let mut capture = None;
-        let mut capture_label = String::from("未注册（所有候选键都被占用）");
-        let mut failures: Vec<String> = Vec::new();
+    /// Register a complete replacement, restoring the previous bindings on error.
+    pub fn reconfigure(&mut self, capture_text: &str, paste_text: &str) -> Result<()> {
+        self.reconfigure_with(capture_text, paste_text, || Ok(()))
+    }
 
-        for (label, mods, code) in CAPTURE_CANDIDATES {
-            match manager.register(HotKey::new(*mods, *code)) {
-                Ok(()) => {
-                    if failures.is_empty() {
-                        log::info!("已注册全局热键 {label} → 截图");
-                    } else {
-                        log::warn!(
-                            "{} 的候选截图热键都已被占用（{}），\
-                             现已降级为 {label} → 截图。\
-                             想用 F1 请先退出占用它的程序（例如正版 Snipaste）。",
-                            failures.join("、"),
-                            failures.len()
-                        );
+    pub fn reconfigure_with(
+        &mut self,
+        capture_text: &str,
+        paste_text: &str,
+        commit: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        validate_pair(capture_text, paste_text)?;
+        let custom_capture = parse_optional(capture_text)?;
+        let custom_paste = parse_optional(paste_text)?;
+        let old: Vec<_> = [
+            self.capture,
+            self.paste,
+            self.capture_alias,
+            self.paste_alias,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        self._manager
+            .unregister_all(&old)
+            .context("无法注销旧快捷键")?;
+        let mut registered = Vec::new();
+        let result = (|| -> Result<_> {
+            let candidates: Vec<_> = if let Some(key) = custom_capture {
+                vec![(capture_text.trim().to_owned(), key)]
+            } else {
+                CAPTURE_CANDIDATES
+                    .iter()
+                    .map(|(label, mods, key)| ((*label).to_owned(), HotKey::new(*mods, *key)))
+                    .collect()
+            };
+            let mut capture = None;
+            let mut capture_label = "未注册，请用菜单截图".to_owned();
+            for (label, key) in candidates {
+                match self._manager.register(key) {
+                    Ok(()) => {
+                        registered.push(key);
+                        capture = Some(key);
+                        capture_label = label;
+                        break;
                     }
-                    capture = Some(HotKey::new(*mods, *code));
-                    capture_label = (*label).to_owned();
-                    break;
+                    Err(err) if custom_capture.is_some() => {
+                        anyhow::bail!("截图快捷键被占用或无法注册：{err}")
+                    }
+                    Err(err) => log::warn!("无法注册截图快捷键 {label}：{err}"),
                 }
-                Err(err) => failures.push(format!("{label}: {err}")),
             }
-        }
-
-        if capture.is_none() {
-            log::error!(
-                "无法注册任何截图热键：{}。托盘菜单与界面按钮仍可触发截图。",
-                failures.join("；")
-            );
-        }
-
-        // 贴图热键失败完全不影响主流程
-        let (paste_label, paste) = if cfg!(target_os = "macos") {
-            (
-                "⌘⇧1",
-                HotKey::new(Some(Modifiers::SUPER.union(Modifiers::SHIFT)), Code::Digit1),
-            )
-        } else {
-            ("F3", HotKey::new(None, Code::F3))
-        };
-        let paste = match manager.register(paste) {
-            Ok(()) => Some(paste),
-            Err(err) => {
-                log::warn!("注册 {paste_label}（贴图）失败：{err}；托盘菜单仍可用");
-                None
-            }
-        };
-        let mut paste_label = if paste.is_some() {
-            paste_label.to_owned()
-        } else {
-            "未注册".into()
-        };
-        let (capture_alias, paste_alias) = if cfg!(target_os = "macos") {
-            let alias = HotKey::new(None, Code::F1);
-            let capture_alias = if capture != Some(alias) && manager.register(alias).is_ok() {
-                capture_label.push_str(" / F1");
-                Some(alias)
+            let (default_paste_label, default_paste) = default_paste();
+            let paste_key = custom_paste.unwrap_or(default_paste);
+            let mut paste_label = if custom_paste.is_some() {
+                paste_text.trim().to_owned()
             } else {
-                None
+                default_paste_label.into()
             };
-            let alias = HotKey::new(None, Code::F3);
-            let paste_alias = if manager.register(alias).is_ok() {
-                if paste.is_some() {
-                    paste_label.push_str(" / F3");
+            let paste = match self._manager.register(paste_key) {
+                Ok(()) => {
+                    registered.push(paste_key);
+                    Some(paste_key)
+                }
+                Err(err) if custom_paste.is_some() => {
+                    anyhow::bail!("贴图快捷键被占用或无法注册：{err}")
+                }
+                Err(err) => {
+                    log::warn!("无法注册贴图快捷键：{err}");
+                    paste_label = "未注册，请用菜单贴图".into();
+                    None
+                }
+            };
+            let mut alias = |key: HotKey| {
+                if !registered.contains(&key) && self._manager.register(key).is_ok() {
+                    registered.push(key);
+                    Some(key)
                 } else {
-                    paste_label = "F3".into();
+                    None
                 }
-                Some(alias)
+            };
+            let capture_alias = if cfg!(target_os = "macos") && custom_capture.is_none() {
+                alias(HotKey::new(None, Code::F1))
             } else {
                 None
             };
-            (capture_alias, paste_alias)
-        } else {
-            (None, None)
-        };
-
-        Ok(Self {
-            _manager: manager,
-            capture,
-            capture_label,
-            paste,
-            capture_alias,
-            paste_alias,
-            paste_label,
-        })
+            let paste_alias = if cfg!(target_os = "macos") && custom_paste.is_none() {
+                alias(HotKey::new(None, Code::F3))
+            } else {
+                None
+            };
+            if capture_alias.is_some() {
+                capture_label.push_str(" / F1");
+            }
+            if paste_alias.is_some() {
+                paste_label.push_str(" / F3");
+            }
+            commit()?;
+            Ok((
+                capture,
+                paste,
+                capture_alias,
+                paste_alias,
+                capture_label,
+                paste_label,
+            ))
+        })();
+        match result {
+            Ok((capture, paste, capture_alias, paste_alias, capture_label, paste_label)) => {
+                self.capture = capture;
+                self.paste = paste;
+                self.capture_alias = capture_alias;
+                self.paste_alias = paste_alias;
+                self.capture_label = capture_label;
+                self.paste_label = paste_label;
+                Ok(())
+            }
+            Err(err) => {
+                let _ = self._manager.unregister_all(&registered);
+                for key in old {
+                    self._manager.register(key).context("恢复原快捷键失败")?;
+                }
+                Err(err)
+            }
+        }
     }
 
     /// 把热键 id 翻译成动作。id 由 `global-hotkey` 按「修饰键位 + 按键码」算出。
@@ -175,5 +224,48 @@ impl Hotkeys {
         } else {
             None
         }
+    }
+}
+
+fn default_paste() -> (&'static str, HotKey) {
+    if cfg!(target_os = "macos") {
+        (
+            "⌘⇧1",
+            HotKey::new(Some(Modifiers::SUPER.union(Modifiers::SHIFT)), Code::Digit1),
+        )
+    } else {
+        ("F3", HotKey::new(None, Code::F3))
+    }
+}
+
+fn parse_optional(text: &str) -> Result<Option<HotKey>> {
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(text.trim().parse::<HotKey>().context(
+        "快捷键格式无效，请使用 Ctrl+Shift+S 或 Command+Shift+2 等格式",
+    )?))
+}
+
+pub fn validate_pair(capture: &str, paste: &str) -> Result<()> {
+    let capture = parse_optional(capture)?.unwrap_or_else(|| {
+        let (_, mods, key) = CAPTURE_CANDIDATES[0];
+        HotKey::new(mods, key)
+    });
+    let paste = parse_optional(paste)?.unwrap_or_else(|| default_paste().1);
+    anyhow::ensure!(capture != paste, "截图与贴图不能使用同一个快捷键");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn hotkeys_validate_before_touching_system_registrations() {
+        assert!(validate_pair("Ctrl+Shift+F8", "Alt+F9").is_ok());
+        assert!(validate_pair("Command+Shift+2", "Command+Shift+1").is_ok());
+        assert!(validate_pair("Ctrl+F8", "Control+F8").is_err());
+        assert!(validate_pair("Ctrl+Oops", "").is_err());
+        assert!(validate_pair("", "").is_ok());
     }
 }

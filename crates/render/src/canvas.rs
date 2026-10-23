@@ -78,6 +78,32 @@ pub fn paint_annotation(painter: &Painter, ann: &Annotation, view: &Viewport) {
             content,
             style,
         } => paint_text(painter, rect, content, style, view),
+        Annotation::Sequence {
+            center,
+            number,
+            radius,
+            style,
+        } => {
+            let center = view.to_points(*center);
+            let radius = view.len_to_points(*radius);
+            painter.circle_filled(center, radius, to_color32(style.stroke));
+            let c = style.stroke;
+            let foreground =
+                if u32::from(c.r) * 299 + u32::from(c.g) * 587 + u32::from(c.b) * 114 > 160_000 {
+                    Color32::BLACK
+                } else {
+                    Color32::WHITE
+                };
+            let text = number.to_string();
+            let size = radius * 1.15 * (1.6 / text.len() as f32).min(1.0);
+            painter.text(
+                center,
+                Align2::CENTER_CENTER,
+                text,
+                FontId::proportional(size),
+                foreground,
+            );
+        }
     }
 }
 

@@ -96,6 +96,8 @@ pub struct Editor {
     pub eraser_brush: bool,
     pub brush_width: f32,
     pub color_format: ColorFormat,
+    pub sequence_size: f32,
+    pub window_snapping: bool,
     anchor: Pos,
     capture_drag: bool,
     drag: Drag,
@@ -152,6 +154,8 @@ impl Editor {
             eraser_brush: true,
             brush_width: 24.0,
             color_format: ColorFormat::default(),
+            sequence_size: 32.0,
+            window_snapping: true,
             anchor: Pos::ZERO,
             capture_drag: false,
             drag: Drag::Idle,
@@ -206,10 +210,14 @@ impl Editor {
         let style = self.style;
         let brushes = (self.mosaic_brush, self.eraser_brush, self.brush_width);
         let color_format = self.color_format;
+        let sequence_size = self.sequence_size;
+        let window_snapping = self.window_snapping;
         *self = Self::new();
         self.style = style;
         (self.mosaic_brush, self.eraser_brush, self.brush_width) = brushes;
         self.color_format = color_format;
+        self.sequence_size = sequence_size;
+        self.window_snapping = window_snapping;
         self.set_screen_bounds(screen);
         if snapping {
             self.select_full_screen(screen);
@@ -489,7 +497,43 @@ impl Editor {
             Tool::Text => {
                 self.start_text(p);
             }
+            Tool::Sequence => {}
         }
+    }
+
+    /// Derive the next number from the document so undo/redo and new sessions
+    /// cannot leave a separate counter out of sync.
+    pub fn next_sequence_number(&self) -> u32 {
+        self.doc
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Annotation::Sequence { number, .. } => Some(*number),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+    }
+
+    pub fn add_sequence(&mut self, center: Pos) {
+        if !self.doc.selection.is_some_and(|s| s.contains(center)) {
+            return;
+        }
+        self.commit_text();
+        self.cancel_drag();
+        self.disarm_snap();
+        let number = self.next_sequence_number();
+        self.doc.draft = Some(Annotation::Sequence {
+            center,
+            number,
+            radius: self.sequence_size.clamp(20.0, 96.0) * 0.5,
+            style: self.style,
+        });
+        if let Some(edit) = self.doc.commit_draft() {
+            self.history.record(edit);
+        }
+        self.selected_item = self.doc.items.len().checked_sub(1);
     }
 
     /// 鼠标移动（按住时）。
@@ -760,6 +804,63 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sequence_numbering_follows_undo_redo_deletion_and_new_sessions() {
+        let mut ed = Editor::new();
+        let screen = Rect::new(0.0, 0.0, 800.0, 600.0);
+        ed.reset_session(screen, false);
+        ed.set_selection(Some(Rect::new(100.0, 100.0, 500.0, 300.0)));
+        ed.set_tool(Tool::Sequence);
+        ed.add_sequence(Pos::new(200.0, 200.0));
+        ed.add_sequence(Pos::new(300.0, 200.0));
+        assert_eq!(ed.next_sequence_number(), 3);
+        assert!(ed.undo());
+        assert_eq!(ed.next_sequence_number(), 2);
+        assert!(ed.redo());
+        assert_eq!(ed.next_sequence_number(), 3);
+        ed.selected_item = Some(1);
+        ed.delete_selected();
+        assert_eq!(ed.next_sequence_number(), 2);
+        assert!(ed.undo());
+        assert!(ed.undo());
+        ed.add_sequence(Pos::new(400.0, 200.0));
+        assert!(!ed.can_redo());
+        assert!(matches!(
+            ed.doc.items[1],
+            Annotation::Sequence { number: 2, .. }
+        ));
+        ed.sequence_size = 54.0;
+        ed.reset_session(screen, false);
+        assert_eq!(ed.next_sequence_number(), 1);
+        assert_eq!(ed.sequence_size, 54.0);
+    }
+
+    #[test]
+    fn sequence_can_be_moved_deleted_and_restored_without_bitmap_history() {
+        let mut ed = Editor::new();
+        ed.set_selection(Some(Rect::new(-500.0, -200.0, 400.0, 300.0)));
+        let center = Pos::new(-350.0, -50.0);
+        ed.add_sequence(Pos::ZERO);
+        assert!(ed.doc.items.is_empty());
+        ed.add_sequence(center);
+        let original = ed.doc.items[0].clone();
+        assert!(original.hit_test(center, 0.0));
+        assert!(!original.hit_test(center + Pos::new(15.0, 15.0), 0.0));
+        ed.set_tool(Tool::Select);
+        ed.begin(center);
+        ed.finish(center + Pos::new(30.0, 20.0));
+        assert!(
+            matches!(ed.doc.items[0], Annotation::Sequence { center: p, number: 1, .. } if p == center + Pos::new(30.0, 20.0))
+        );
+        assert!(ed.undo());
+        assert_eq!(ed.doc.items[0], original);
+        ed.selected_item = Some(0);
+        ed.delete_selected();
+        assert!(ed.doc.items.is_empty());
+        assert!(ed.undo());
+        assert_eq!(ed.doc.items[0], original);
+    }
 
     fn rect_editor() -> Editor {
         let mut ed = Editor::new();

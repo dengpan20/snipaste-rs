@@ -32,6 +32,9 @@ use crate::editor::{Editor, QrResult};
 use crate::gfx::{GpuContext, SurfaceWindow};
 use crate::hotkey::{Action, Hotkeys};
 use crate::pin::{PinCommand, PinWindow};
+use crate::settings::{
+    AnnotationPreferences, ImageFormat, Preferences, SettingsCommand, SettingsStore, SettingsWindow,
+};
 use crate::tray::{MenuAction, Tray};
 use crate::ui::{self, Command};
 use crate::{color_picker, export, qr};
@@ -64,6 +67,9 @@ pub struct App {
     capture_texture: Option<egui::TextureHandle>,
     clipboard: Option<snipaste_platform::clipboard::Clipboard>,
     pins: Vec<PinWindow>,
+    settings_window: Option<SettingsWindow>,
+    preferences: Preferences,
+    settings_store: Option<SettingsStore>,
     qr_request: u64,
     modifiers: winit::keyboard::ModifiersState,
 
@@ -103,15 +109,32 @@ pub struct App {
 impl App {
     pub fn new(proxy: EventLoopProxy<UserEvent>) -> Self {
         let egui_ctx = egui::Context::default();
+        let settings_store = SettingsStore::for_user()
+            .map_err(|e| log::warn!("设置目录不可用：{e:#}"))
+            .ok();
+        let preferences = settings_store
+            .as_ref()
+            .and_then(|s| {
+                s.load()
+                    .map_err(|e| log::warn!("无法加载设置，使用默认值：{e:#}"))
+                    .ok()
+            })
+            .unwrap_or_default();
+        let mut editor = Editor::new();
+        preferences.annotation.apply(&mut editor);
+        editor.window_snapping = preferences.window_snapping;
 
         let mut app = Self {
             proxy: proxy.clone(),
             egui_ctx,
-            editor: Editor::new(),
+            editor,
             snapshot: None,
             capture_texture: None,
             clipboard: None,
             pins: Vec::new(),
+            settings_window: None,
+            preferences,
+            settings_store,
             qr_request: 0,
             modifiers: winit::keyboard::ModifiersState::empty(),
             gfx: None,
@@ -192,7 +215,17 @@ impl App {
             Err(err) => log::warn!("托盘不可用：{err:#}"),
         }
         match Hotkeys::register() {
-            Ok(h) => {
+            Ok(mut h) => {
+                if !self.preferences.capture_hotkey.is_empty()
+                    || !self.preferences.paste_hotkey.is_empty()
+                {
+                    if let Err(err) = h.reconfigure(
+                        &self.preferences.capture_hotkey,
+                        &self.preferences.paste_hotkey,
+                    ) {
+                        log::warn!("自定义快捷键不可用，保留默认快捷键：{err:#}");
+                    }
+                }
                 self.hotkey_label = h.capture_label.clone();
                 if let Some(tray) = self.tray.as_ref() {
                     tray.set_hotkey_labels(&h.capture_label, &h.paste_label);
@@ -206,6 +239,12 @@ impl App {
         }
 
         self.started = true;
+        #[cfg(debug_assertions)]
+        if let Some(dir) = std::env::var_os("SNIPASTE_VERIFY_SETTINGS_DIR") {
+            self.verify_settings(event_loop, std::path::Path::new(&dir))?;
+            event_loop.exit();
+            return Ok(());
+        }
         self.memory_profile = crate::memory_profile::Profile::from_env();
         #[cfg(all(debug_assertions, target_os = "macos"))]
         if std::env::var("SNIPASTE_VERIFY_MENU_BAR").as_deref() == Ok("1") {
@@ -453,6 +492,10 @@ impl App {
         }
         #[cfg(target_os = "macos")]
         snipaste_platform::macos::begin_capture();
+        if let Some(settings) = self.settings_window.as_ref() {
+            settings.surface.window.set_visible(false);
+            snipaste_platform::window::flush_compositor();
+        }
         if let Err(err) = self.ensure_graphics(event_loop) {
             log::error!("截图界面初始化失败：{err:#}");
             self.set_overlay_visible(false);
@@ -479,7 +522,11 @@ impl App {
                 return;
             }
         };
-        self.editor.reset_session(screen, !snap_disabled());
+        if !self.preferences.remember_annotation {
+            self.preferences.annotation.apply(&mut self.editor);
+        }
+        self.editor
+            .reset_session(screen, self.preferences.window_snapping && !snap_disabled());
         self.egui_ctx
             .input_mut(|input| input.pointer = Default::default());
         self.qr_request += 1;
@@ -531,6 +578,7 @@ impl App {
             }
         }
         if !visible {
+            self.persist_annotation_preferences();
             #[cfg(target_os = "macos")]
             {
                 self.preview_pending = false;
@@ -554,20 +602,133 @@ impl App {
             }
             self.repaint_deadline = None;
             self.schedule_graphics_release();
+            if let Some(settings) = self.settings_window.as_ref() {
+                settings.surface.window.set_visible(true);
+                settings.surface.window.request_redraw();
+            }
         }
     }
 
+    fn persist_annotation_preferences(&mut self) {
+        if !self.preferences.remember_annotation {
+            return;
+        }
+        let annotation = AnnotationPreferences::from_editor(&self.editor);
+        if annotation == self.preferences.annotation {
+            return;
+        }
+        let mut updated = self.preferences.clone();
+        updated.annotation = annotation;
+        if let Some(store) = self.settings_store.as_ref() {
+            if let Err(err) = store.save(&updated) {
+                log::warn!("无法保存标注偏好：{err:#}");
+                return;
+            }
+        }
+        self.preferences = updated;
+    }
+
+    fn show_settings(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        if self.visible {
+            self.set_overlay_visible(false);
+        }
+        if let Some(settings) = self.settings_window.as_ref() {
+            settings.surface.window.set_visible(true);
+            settings.surface.window.focus_window();
+            return Ok(());
+        }
+        let labels = self
+            .hotkeys
+            .as_ref()
+            .map(|h| (h.capture_label.clone(), h.paste_label.clone()))
+            .unwrap_or_else(|| ("未注册".into(), "未注册".into()));
+        self.settings_window = Some(SettingsWindow::new(
+            event_loop,
+            &mut self.gfx,
+            self.preferences.clone(),
+            snipaste_platform::autostart::enabled(),
+            labels,
+        )?);
+        self.graphics_release_deadline = None;
+        Ok(())
+    }
+
+    fn close_settings(&mut self) {
+        self.settings_window = None;
+        self.schedule_graphics_release();
+    }
+
+    fn apply_settings(&mut self) -> Result<()> {
+        let window = self.settings_window.as_ref().context("设置窗口已关闭")?;
+        let mut preferences = window.draft.clone();
+        preferences.capture_hotkey = preferences.capture_hotkey.trim().into();
+        preferences.paste_hotkey = preferences.paste_hotkey.trim().into();
+        preferences.save_directory = preferences.save_directory.trim().into();
+        preferences.validate()?;
+        preferences.validate_directory()?;
+        let old_autostart = snipaste_platform::autostart::enabled();
+        let autostart = window.autostart;
+        let store = self
+            .settings_store
+            .as_ref()
+            .context("用户设置目录不可用，无法保存")?;
+        let commit = || -> Result<()> {
+            if autostart != old_autostart {
+                snipaste_platform::autostart::set_enabled(autostart).map_err(anyhow::Error::msg)?;
+            }
+            if let Err(err) = store.save(&preferences) {
+                if autostart != old_autostart {
+                    snipaste_platform::autostart::set_enabled(old_autostart)
+                        .map_err(anyhow::Error::msg)
+                        .context("保存失败，恢复开机自启也失败")?;
+                }
+                return Err(err);
+            }
+            Ok(())
+        };
+        if preferences.capture_hotkey != self.preferences.capture_hotkey
+            || preferences.paste_hotkey != self.preferences.paste_hotkey
+        {
+            self.hotkeys
+                .as_mut()
+                .context("全局快捷键服务不可用")?
+                .reconfigure_with(
+                    &preferences.capture_hotkey,
+                    &preferences.paste_hotkey,
+                    commit,
+                )?;
+        } else {
+            commit()?;
+        }
+        preferences.annotation.apply(&mut self.editor);
+        self.editor.window_snapping = preferences.window_snapping;
+        self.preferences = preferences;
+        if let Some(hotkeys) = self.hotkeys.as_ref() {
+            self.hotkey_label = hotkeys.capture_label.clone();
+            if let Some(tray) = self.tray.as_ref() {
+                tray.set_hotkey_labels(&hotkeys.capture_label, &hotkeys.paste_label);
+            }
+        }
+        if let Some(tray) = self.tray.as_ref() {
+            tray.autostart.set_checked(autostart);
+        }
+        Ok(())
+    }
+
     fn schedule_graphics_release(&mut self) {
-        self.graphics_release_deadline =
-            if !self.visible && self.pins.is_empty() && self.gfx.is_some() {
-                Some(std::time::Instant::now() + std::time::Duration::from_secs(3))
-            } else {
-                None
-            };
+        self.graphics_release_deadline = if !self.visible
+            && self.pins.is_empty()
+            && self.settings_window.is_none()
+            && self.gfx.is_some()
+        {
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(3))
+        } else {
+            None
+        };
     }
 
     fn release_idle_graphics(&mut self) {
-        if self.visible || !self.pins.is_empty() {
+        if self.visible || !self.pins.is_empty() || self.settings_window.is_some() {
             return;
         }
         self.overlay = None;
@@ -629,6 +790,10 @@ impl App {
             }
         }
         let hotkey_label = self.hotkey_label.as_str();
+        let paste_hotkey_label = self
+            .hotkeys
+            .as_ref()
+            .map_or("菜单贴图", |h| h.paste_label.as_str());
         let editor = &mut self.editor;
         let background = self
             .snapshot
@@ -638,7 +803,14 @@ impl App {
 
         let mut cmds = Vec::new();
         let mut full = self.egui_ctx.run_ui(raw_input, |ui| {
-            cmds = ui::draw(ui, editor, view, background, hotkey_label);
+            cmds = ui::draw(
+                ui,
+                editor,
+                view,
+                background,
+                hotkey_label,
+                paste_hotkey_label,
+            );
         });
         self.repaint_deadline = full
             .viewport_output
@@ -882,7 +1054,7 @@ impl App {
                     if let Some(o) = self.overlay.as_ref() {
                         o.window.set_visible(false);
                     }
-                    match save_image(&image) {
+                    match save_image(&image, &self.preferences) {
                         Ok(true) => self.set_overlay_visible(false),
                         Ok(false) => self.set_overlay_visible(true),
                         Err(err) => {
@@ -1214,6 +1386,15 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = std::time::Instant::now();
+        if let Some(settings) = self.settings_window.as_mut() {
+            if settings
+                .repaint_deadline
+                .is_some_and(|deadline| deadline <= now)
+            {
+                settings.repaint_deadline = None;
+                settings.surface.window.request_redraw();
+            }
+        }
         if self
             .graphics_release_deadline
             .is_some_and(|deadline| deadline <= now)
@@ -1267,6 +1448,11 @@ impl ApplicationHandler<UserEvent> for App {
             .chain(self.repaint_deadline.filter(|_| self.visible))
             .chain(self.memory_profile.as_ref().map(|p| p.deadline))
             .chain(self.graphics_release_deadline)
+            .chain(
+                self.settings_window
+                    .as_ref()
+                    .and_then(|s| s.repaint_deadline),
+            )
             .min();
         event_loop.set_control_flow(match deadline {
             Some(deadline) => winit::event_loop::ControlFlow::WaitUntil(deadline),
@@ -1308,6 +1494,46 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if self
+            .settings_window
+            .as_ref()
+            .is_some_and(|s| s.surface.window.id() == id)
+        {
+            let command = self
+                .gfx
+                .as_ref()
+                .zip(self.settings_window.as_mut())
+                .and_then(|(gfx, settings)| settings.event(gfx, &event));
+            match command {
+                Some(SettingsCommand::Close) => self.close_settings(),
+                Some(SettingsCommand::Save) => {
+                    if let Err(err) = self.apply_settings() {
+                        if let Some(settings) = self.settings_window.as_mut() {
+                            settings.error = Some(format!("{err:#}"));
+                            settings.surface.window.request_redraw();
+                        }
+                    } else {
+                        self.close_settings();
+                    }
+                }
+                Some(SettingsCommand::BrowseDirectory) => {
+                    let selected = snipaste_platform::dialog::choose_directory();
+                    if let Some(settings) = self.settings_window.as_mut() {
+                        match selected {
+                            Ok(Some(path)) => {
+                                settings.draft.save_directory = path.to_string_lossy().into_owned()
+                            }
+                            Ok(None) => {}
+                            Err(err) => settings.error = Some(err),
+                        }
+                        settings.surface.window.focus_window();
+                        settings.surface.window.request_redraw();
+                    }
+                }
+                None => {}
+            }
+            return;
+        }
         if let Some(index) = self.pins.iter().position(|p| p.surface.window.id() == id) {
             let command = self
                 .gfx
@@ -1324,7 +1550,7 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                 }
                 Some(PinCommand::Save) => {
-                    if let Err(err) = save_image(&self.pins[index].image) {
+                    if let Err(err) = save_image(&self.pins[index].image, &self.preferences) {
                         log::warn!("保存贴图失败：{err:#}");
                     }
                 }
@@ -1491,6 +1717,63 @@ impl App {
     }
 
     #[cfg(debug_assertions)]
+    fn verify_settings(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        dir: &std::path::Path,
+    ) -> Result<()> {
+        std::fs::create_dir_all(dir)?;
+        self.show_settings(event_loop)?;
+        let gfx = self.gfx.as_ref().context("缺少设置 GPU")?;
+        let window = self.settings_window.as_mut().context("缺少设置窗口")?;
+        window.event(gfx, &WindowEvent::RedrawRequested);
+        window.verify_fonts()?;
+        crate::settings::render_preview(gfx, dir)?;
+        crate::acceptance::verify_sequences(gfx, dir)?;
+        let original = self.preferences.clone();
+        window.draft.image_format = ImageFormat::Jpeg;
+        window.draft.annotation.sequence_size = 48.0;
+        self.apply_settings()?;
+        anyhow::ensure!(self.editor.sequence_size == 48.0, "序号设置未应用");
+        anyhow::ensure!(
+            self.settings_store.as_ref().unwrap().load()? == self.preferences,
+            "设置未持久化"
+        );
+        let window = self.settings_window.as_mut().unwrap();
+        window.draft.capture_hotkey = "Ctrl+F8".into();
+        window.draft.paste_hotkey = "Control+F8".into();
+        anyhow::ensure!(self.apply_settings().is_err(), "重复快捷键未被拒绝");
+        anyhow::ensure!(
+            self.settings_store.as_ref().unwrap().load()? == self.preferences,
+            "失败设置改变了磁盘配置"
+        );
+        if let Some(hotkeys) = self.hotkeys.as_mut() {
+            let labels = (hotkeys.capture_label.clone(), hotkeys.paste_label.clone());
+            let mut committed = false;
+            let result =
+                hotkeys.reconfigure_with("Ctrl+Alt+Shift+F10", "Ctrl+Alt+Shift+F11", || {
+                    committed = true;
+                    anyhow::bail!("模拟设置保存失败")
+                });
+            anyhow::ensure!(committed && result.is_err(), "快捷键事务测试未执行");
+            anyhow::ensure!(
+                (hotkeys.capture_label.clone(), hotkeys.paste_label.clone()) == labels,
+                "快捷键回滚失败"
+            );
+        }
+        self.settings_window.as_mut().unwrap().draft = original;
+        self.apply_settings()?;
+        self.close_settings();
+        anyhow::ensure!(self.settings_window.is_none(), "设置窗口未释放");
+        std::fs::write(dir.join("settings-result.txt"), "PASS: native settings window, CJK fonts, atomic preferences, live annotation defaults, duplicate shortcut rejection, hotkey rollback, sequence export and undo/redo, settings window release\n")?;
+        if std::env::var_os("SNIPASTE_VERIFY_SETTINGS_DIR").is_some() {
+            self.release_idle_graphics();
+            anyhow::ensure!(self.gfx.is_none(), "关闭设置后图形资源未释放");
+        }
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
     fn verify_native(&mut self, event_loop: &ActiveEventLoop, dir: &std::path::Path) -> Result<()> {
         use crate::acceptance;
         std::fs::create_dir_all(dir)?;
@@ -1503,6 +1786,7 @@ impl App {
         let saved_image = self.clipboard()?.image().ok();
         let saved_text = self.clipboard()?.text().ok();
         let result = (|| -> Result<()> {
+            self.verify_settings(event_loop, dir)?;
             acceptance::verify_color_ui(self.gfx.as_ref().context("缺少 GPU")?, dir)?;
             self.verify_color_picker_keys()?;
             acceptance::verify_effects(self.gfx.as_ref().context("缺少 GPU")?, dir)?;
@@ -1750,6 +2034,15 @@ impl App {
 
     fn handle_menu(&mut self, event_loop: &ActiveEventLoop, action: MenuAction) {
         match action {
+            MenuAction::Settings => {
+                if let Err(err) = self.show_settings(event_loop) {
+                    self.schedule_graphics_release();
+                    snipaste_platform::dialog::show_information(
+                        "无法打开设置",
+                        &format!("{err:#}"),
+                    );
+                }
+            }
             MenuAction::Capture => {
                 self.start_capture(event_loop);
             }
@@ -1807,7 +2100,10 @@ impl App {
                 }
                 snipaste_platform::macos::open_screen_settings();
             }
-            MenuAction::Quit => event_loop.exit(),
+            MenuAction::Quit => {
+                self.persist_annotation_preferences();
+                event_loop.exit();
+            }
         }
         self.request_repaint();
     }
@@ -1828,11 +2124,20 @@ fn snap_disabled() -> bool {
     }
 }
 
-fn save_image(image: &image::RgbaImage) -> Result<bool> {
-    let Some(path) = snipaste_platform::dialog::save_image_path().map_err(anyhow::Error::msg)?
+fn save_image(image: &image::RgbaImage, preferences: &Preferences) -> Result<bool> {
+    let directory = (!preferences.save_directory.is_empty())
+        .then(|| std::path::Path::new(&preferences.save_directory));
+    let Some(mut path) = snipaste_platform::dialog::save_image_path_with_options(
+        directory,
+        preferences.image_format == ImageFormat::Jpeg,
+    )
+    .map_err(anyhow::Error::msg)?
     else {
         return Ok(false);
     };
+    if path.extension().is_none() {
+        path.set_extension(preferences.image_format.extension());
+    }
     let format = image::ImageFormat::from_path(&path)?;
     if format == image::ImageFormat::Jpeg {
         use image::buffer::ConvertBuffer;

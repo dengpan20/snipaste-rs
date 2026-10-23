@@ -50,7 +50,7 @@ Windows 0.2.3 在一台 3440 × 1440 显示器的测试电脑上：
 
 ## 平台与版本
 
-当前源码与正式发布包版本：**0.2.6**。下载见 [GitHub Releases](https://github.com/dengpan20/snipaste-rs/releases/latest)。
+当前源码与正式发布包版本：**0.2.7**。下载见 [GitHub Releases](https://github.com/dengpan20/snipaste-rs/releases/latest)。
 
 | 平台 | 当前状态 |
 |---|---|
@@ -64,11 +64,11 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
 
 ### Windows：下载后运行
 
-1. 下载 [Windows 64 位便携包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.6/yingtie-0.2.6-win64.zip)，或 [独立程序](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.6/yingtie-0.2.6.exe)。
+1. 下载 [Windows 64 位便携包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/yingtie-0.2.7-win64.zip)，或 [独立程序](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/yingtie-0.2.7.exe)。
 2. 解压后运行 `snipaste-rs.exe`；独立程序可以直接运行，无需安装 Rust。
 3. 程序启动后驻留系统托盘。按 **F1** 开始截图，或从托盘菜单选择“截图”。
 
-运行新版前，请先从托盘退出旧版。发布包包含使用说明和文件校验；下载校验文件见 [SHA256SUMS.txt](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.6/SHA256SUMS.txt)。
+运行新版前，请先从托盘退出旧版。发布包包含使用说明和文件校验；下载校验文件见 [SHA256SUMS.txt](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/SHA256SUMS.txt)。
 
 **完成第一张截图：**
 
@@ -80,7 +80,7 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
 
 要求 **macOS 14 或更新版本**，以及 Apple Silicon 芯片。
 
-1. 下载 [Mac arm64 应用包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.6/yingtie-0.2.6-macos-arm64.zip)。
+1. 下载 [Mac arm64 应用包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/yingtie-0.2.7-macos-arm64.zip)。
 2. 解压后将 **映贴.app** 移入“应用程序”，然后打开；程序驻留顶部菜单栏。
 3. 首次截图时，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中允许映贴，再退出并重新打开。
 4. 按 **⌘⇧2** → 拖动框选 → Enter 确认 → 在其他应用中按 **⌘V** 粘贴。
@@ -104,10 +104,10 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
    bash scripts/build-macos.sh
    ```
 
-4. 将生成的 `dist/macos-0.2.6/映贴.app` 移入“应用程序”，然后打开。顶部菜单栏仅显示截图图标，点击可打开截图、贴图、权限设置、自启、设置、操作说明、关于和退出菜单。
+4. 将生成的 `dist/macos-0.2.7/映贴.app` 移入“应用程序”，然后打开。顶部菜单栏仅显示截图图标，点击可打开截图、贴图、权限设置、自启、设置、操作说明、关于和退出菜单。
 5. 按 **⌘⇧2** 或从菜单栏选择“截图”。权限提示中点击 **打开权限设置** 可直接跳转，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中授权，再退出并重新打开应用。
 
-构建需要 macOS 14+ SDK，首次编译会下载依赖。脚本同时生成 `dist/yingtie-0.2.6-macos-arm64.zip`，本机构建默认使用固定的本机签名证书；当前版本由 CI 构建校验；已有真机验收记录见 Mac 指南，Developer ID 签名和 Apple 公证尚未执行。更多权限、签名和验收步骤见 [Mac 指南](docs/macos.md)。
+构建需要 macOS 14+ SDK，首次编译会下载依赖。脚本同时生成 `dist/yingtie-0.2.7-macos-arm64.zip`，本机构建默认使用固定的本机签名证书；当前版本由 CI 构建校验；已有真机验收记录见 Mac 指南，Developer ID 签名和 Apple 公证尚未执行。更多权限、签名和验收步骤见 [Mac 指南](docs/macos.md)。
 
 需要同时检查代码和运行单元测试时，使用 `bash scripts/build-macos.sh --verify`。桌面功能验收和三轮内存诊断分别使用 `bash scripts/verify-macos.sh`、`bash scripts/verify-macos.sh --memory`，验收应用需要自己的屏幕录制权限。
 
@@ -123,7 +123,7 @@ cargo build --locked --release -p snipaste-app --target x86_64-pc-windows-msvc
 
 现有 Windows 验收使用 GNU 工具链；使用 MinGW-w64 / w64devkit 的配置步骤见 [构建指南](docs/build.md)。
 
-生成发布包可运行 `powershell -File scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc`（GNU 环境改为 `x86_64-pc-windows-gnu`）。脚本要求源代码已提交且工作区干净，输出便携包、独立程序及带提交编号的构建信息到 `dist/release-0.2.6/`。
+生成发布包可运行 `powershell -File scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc`（GNU 环境改为 `x86_64-pc-windows-gnu`）。脚本要求源代码已提交且工作区干净，输出便携包、独立程序及带提交编号的构建信息到 `dist/release-0.2.7/`。
 
 ## 快捷键
 

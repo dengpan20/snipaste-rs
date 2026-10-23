@@ -1,13 +1,13 @@
-# 映贴 · macOS Apple Silicon（0.2.6）
+# 映贴 · macOS Apple Silicon（0.2.7）
 
 目标：macOS 14+，M1 / M2 / M3 / M4 等 Apple Silicon；仅构建 `arm64`，不包含 Intel / Rosetta 版本。
 
 ## 在 Mac 上构建
 
-1. 克隆本仓库、解压 GitHub 的 **Code → Download ZIP**，或解压 `yingtie-0.2.6-macos-arm64-source.zip`（如已提供）。
+1. 克隆本仓库、解压 GitHub 的 **Code → Download ZIP**，或解压 `yingtie-0.2.7-macos-arm64-source.zip`（如已提供）。
 2. 首次准备：安装 [Rust](https://rustup.rs)，并在终端运行 `xcode-select --install` 安装 Apple 命令行开发工具。需要 macOS 14+ SDK。
 3. 双击根目录的 **Build macOS.command**。首次编译会下载依赖，耗时取决于网络和设备。
-4. 将生成的 `dist/macos-0.2.6/映贴.app` 移入 **应用程序**，双击打开。程序驻留菜单栏，仅显示截图图标，不显示 Dock 图标。
+4. 将生成的 `dist/macos-0.2.7/映贴.app` 移入 **应用程序**，双击打开。程序驻留菜单栏，仅显示截图图标，不显示 Dock 图标。
 
 命令行方式（在项目根目录执行）：
 
@@ -23,8 +23,8 @@ bash scripts/build-macos.sh --verify
 
 `--verify` 依次执行格式检查、整个 workspace 的 clippy（告警视为错误）、单元测试、release 编译和 `.app` 打包。两种方式都会编译并链接 Objective-C 原生桥，校验 `Info.plist`、arm64 架构和签名，生成：
 
-- 应用：`dist/macos-0.2.6/映贴.app`
-- 压缩包：`dist/yingtie-0.2.6-macos-arm64.zip`
+- 应用：`dist/macos-0.2.7/映贴.app`
+- 压缩包：`dist/yingtie-0.2.7-macos-arm64.zip`
 
 构建脚本自动将 `~/.cargo/bin` 加入 PATH。首次安装 Rust 后，如需直接使用 `cargo`，先运行 `source "$HOME/.cargo/env"` 或重新打开终端。
 

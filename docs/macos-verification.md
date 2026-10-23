@@ -159,3 +159,7 @@ Windows 上的 Rust-only 检查显式设置 `SNIPASTE_MACOS_CHECK_ONLY=1`，平�
 同步 `75740af` 的物理按键录入、快捷键安全校验、候选键预留及旧 JSON 配置读取，并保留本地设置与序号功能。macOS 合并后 161 项单元测试通过，Mac / Windows GNU 交叉 clippy 零告警。完整原生验收记录为 `dist/macos-verification/20261023-210959-54166/`，独立设置验收记录为 `dist/macos-verification/20261023-211005-54159/`，均为 PASS。设置取消与关闭后恢复热键也进入原生验收。
 
 新增 `.github/workflows/release.yml`，版本标签触发 Windows MSVC 和 macOS arm64 的测试、构建及压缩包校验，全部成功后上传 GitHub Release 草稿，供发布前确认产物。
+
+### 0.2.7 发布前布局复查
+
+物理按键录入与文本框并排时，Grid 将热键文本框压缩到窄列。改用明确宽度的水平布局，正常与最小窗口均保持可读。修正后的原生设置验收记录为 `dist/macos-verification/20261023-211518-55886/`，已目视检查 `settings-ui.png`。0.2.6 标签保留为未发布的构建记录，正式发布版本调整为 0.2.7。

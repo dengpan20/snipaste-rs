@@ -2,6 +2,7 @@ name: macOS Apple Silicon
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths: ['crates/**', 'Cargo.*', '.cargo/**', 'scripts/*macos*', 'packaging/macos/**', '.github/workflows/macos-arm64.yml']
   pull_request:
     paths: ['crates/**', 'Cargo.*', '.cargo/**', 'scripts/*macos*', 'packaging/macos/**', '.github/workflows/macos-arm64.yml']

@@ -472,45 +472,31 @@ fn panel_contents(
             .max_height((height - 120.0).max(180.0))
             .show(ui, |ui| {
                 ui.strong("快捷键");
-                egui::Grid::new("settings.hotkeys")
-                    .num_columns(3)
-                    .spacing([16.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label("截图");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut prefs.capture_hotkey)
+                for action in Action::ALL {
+                    ui.horizontal(|ui| {
+                        ui.add_sized([64.0, 28.0], egui::Label::new(action.label()));
+                        let value = match action {
+                            Action::Capture => &mut prefs.capture_hotkey,
+                            Action::PasteLast => &mut prefs.paste_hotkey,
+                        };
+                        ui.add_sized(
+                            [250.0, 28.0],
+                            egui::TextEdit::singleline(value)
                                 .hint_text("留空使用默认快捷键")
                                 .desired_width(250.0),
                         );
                         if ui
-                            .button(if recording == Some(Action::Capture) {
+                            .button(if recording == Some(action) {
                                 "请按键…"
                             } else {
                                 "录入"
                             })
                             .clicked()
                         {
-                            command = Some(SettingsCommand::Record(Action::Capture));
+                            command = Some(SettingsCommand::Record(action));
                         }
-                        ui.end_row();
-                        ui.label("桌面贴图");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut prefs.paste_hotkey)
-                                .hint_text("留空使用默认快捷键")
-                                .desired_width(250.0),
-                        );
-                        if ui
-                            .button(if recording == Some(Action::PasteLast) {
-                                "请按键…"
-                            } else {
-                                "录入"
-                            })
-                            .clicked()
-                        {
-                            command = Some(SettingsCommand::Record(Action::PasteLast));
-                        }
-                        ui.end_row();
                     });
+                }
                 ui.small(if cfg!(target_os = "macos") {
                     "示例：Command+Shift+2、Command+Shift+1、F1"
                 } else {

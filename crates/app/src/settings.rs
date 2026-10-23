@@ -4,8 +4,10 @@ use crate::{
     editor::Editor,
     export,
     gfx::{GpuContext, SurfaceWindow},
+    hotkey::{self, Action},
 };
 use anyhow::{Context as _, Result};
+use global_hotkey::hotkey::{HotKey, Modifiers};
 use serde::{Deserialize, Serialize};
 use snipaste_core::{Color, MosaicMode, Pos};
 use snipaste_render::{fonts, theme, Viewport};
@@ -14,7 +16,12 @@ use std::{
     sync::Arc,
     time::Instant,
 };
-use winit::{event::WindowEvent, event_loop::ActiveEventLoop, window::Window};
+use winit::{
+    event::{ElementState, WindowEvent},
+    event_loop::ActiveEventLoop,
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
+    window::Window,
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageFormat {
@@ -156,6 +163,7 @@ impl Preferences {
 
 pub struct SettingsStore {
     path: PathBuf,
+    migrate_legacy: bool,
 }
 
 impl SettingsStore {
@@ -163,6 +171,7 @@ impl SettingsStore {
         if let Some(path) = std::env::var_os("SNIPASTE_SETTINGS_PATH") {
             return Ok(Self {
                 path: PathBuf::from(path),
+                migrate_legacy: false,
             });
         }
         if let Some(directory) = std::env::var_os("SNIPASTE_VERIFY_SETTINGS_DIR")
@@ -171,6 +180,7 @@ impl SettingsStore {
         {
             return Ok(Self {
                 path: PathBuf::from(directory).join("settings.toml"),
+                migrate_legacy: false,
             });
         }
         #[cfg(windows)]
@@ -180,6 +190,7 @@ impl SettingsStore {
             .join("Library/Application Support");
         Ok(Self {
             path: root.join("Yingtie/settings.toml"),
+            migrate_legacy: true,
         })
     }
 
@@ -190,7 +201,15 @@ impl SettingsStore {
                 prefs.validate()?;
                 Ok(prefs)
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Preferences::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut prefs = Preferences::default();
+                if self.migrate_legacy {
+                    let legacy = hotkey::Config::load().context("读取旧版热键设置失败")?;
+                    prefs.capture_hotkey = legacy.capture.unwrap_or_default();
+                    prefs.paste_hotkey = legacy.paste.unwrap_or_default();
+                }
+                Ok(prefs)
+            }
             Err(e) => Err(e).context("无法读取设置文件"),
         }
     }
@@ -223,6 +242,8 @@ pub enum SettingsCommand {
     Close,
     Save,
     BrowseDirectory,
+    Record(Action),
+    RestoreDefaults,
 }
 
 pub struct SettingsWindow {
@@ -233,6 +254,8 @@ pub struct SettingsWindow {
     pub error: Option<String>,
     pub repaint_deadline: Option<Instant>,
     hotkey_labels: (String, String),
+    recording: Option<Action>,
+    modifiers: ModifiersState,
 }
 
 impl SettingsWindow {
@@ -293,10 +316,31 @@ impl SettingsWindow {
             error: None,
             repaint_deadline: None,
             hotkey_labels,
+            recording: None,
+            modifiers: ModifiersState::empty(),
         })
     }
 
     pub fn event(&mut self, gfx: &GpuContext, event: &WindowEvent) -> Option<SettingsCommand> {
+        match event {
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            WindowEvent::Focused(false) => {
+                self.modifiers = ModifiersState::empty();
+                self.recording = None;
+            }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed
+                    && !event.repeat
+                    && self.recording.is_some() =>
+            {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    self.record_key(code);
+                    self.surface.window.request_redraw();
+                    return None;
+                }
+            }
+            _ => {}
+        }
         let repaint = self
             .surface
             .egui
@@ -325,6 +369,52 @@ impl SettingsWindow {
         command
     }
 
+    pub fn start_recording(&mut self, action: Action) {
+        self.recording = Some(action);
+        self.error = None;
+        self.surface.window.request_redraw();
+    }
+
+    pub fn restore_defaults(&mut self) {
+        self.draft = Preferences::default();
+        self.autostart = false;
+        self.recording = None;
+        self.error = None;
+        self.surface.window.request_redraw();
+    }
+
+    fn record_key(&mut self, code: KeyCode) {
+        if code == KeyCode::Escape {
+            self.recording = None;
+            self.error = None;
+            return;
+        }
+        if matches!(
+            code,
+            KeyCode::ControlLeft
+                | KeyCode::ControlRight
+                | KeyCode::AltLeft
+                | KeyCode::AltRight
+                | KeyCode::ShiftLeft
+                | KeyCode::ShiftRight
+                | KeyCode::SuperLeft
+                | KeyCode::SuperRight
+        ) {
+            return;
+        }
+        match recorded_key(code, self.modifiers) {
+            Ok(key) => {
+                let mut config =
+                    hotkey::config_from_text(&self.draft.capture_hotkey, &self.draft.paste_hotkey);
+                config.set(self.recording.take().unwrap(), key);
+                self.draft.capture_hotkey = config.capture.unwrap_or_default();
+                self.draft.paste_hotkey = config.paste.unwrap_or_default();
+                self.error = None;
+            }
+            Err(error) => self.error = Some(format!("{error:#}")),
+        }
+    }
+
     fn redraw(&mut self, gfx: &GpuContext) -> Option<SettingsCommand> {
         let input = self.surface.egui.take_egui_input(&self.surface.window);
         let mut command = None;
@@ -335,6 +425,7 @@ impl SettingsWindow {
                 &mut self.autostart,
                 self.error.as_deref(),
                 &self.hotkey_labels,
+                self.recording,
             );
         });
         self.repaint_deadline = full
@@ -353,11 +444,12 @@ fn panel(
     autostart: &mut bool,
     error: Option<&str>,
     labels: &(String, String),
+    recording: Option<Action>,
 ) -> Option<SettingsCommand> {
     let rect = ui.max_rect();
     ui.painter().rect_filled(rect, 0.0, theme::TOOLBAR_BG);
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(16.0)), |ui| {
-        panel_contents(ui, prefs, autostart, error, labels)
+        panel_contents(ui, prefs, autostart, error, labels, recording)
     })
     .inner
 }
@@ -368,6 +460,7 @@ fn panel_contents(
     autostart: &mut bool,
     error: Option<&str>,
     labels: &(String, String),
+    recording: Option<Action>,
 ) -> Option<SettingsCommand> {
     let mut command = None;
     let height = ui.available_height();
@@ -380,22 +473,42 @@ fn panel_contents(
             .show(ui, |ui| {
                 ui.strong("快捷键");
                 egui::Grid::new("settings.hotkeys")
-                    .num_columns(2)
+                    .num_columns(3)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
                         ui.label("截图");
                         ui.add(
                             egui::TextEdit::singleline(&mut prefs.capture_hotkey)
                                 .hint_text("留空使用默认快捷键")
-                                .desired_width(320.0),
+                                .desired_width(250.0),
                         );
+                        if ui
+                            .button(if recording == Some(Action::Capture) {
+                                "请按键…"
+                            } else {
+                                "录入"
+                            })
+                            .clicked()
+                        {
+                            command = Some(SettingsCommand::Record(Action::Capture));
+                        }
                         ui.end_row();
                         ui.label("桌面贴图");
                         ui.add(
                             egui::TextEdit::singleline(&mut prefs.paste_hotkey)
                                 .hint_text("留空使用默认快捷键")
-                                .desired_width(320.0),
+                                .desired_width(250.0),
                         );
+                        if ui
+                            .button(if recording == Some(Action::PasteLast) {
+                                "请按键…"
+                            } else {
+                                "录入"
+                            })
+                            .clicked()
+                        {
+                            command = Some(SettingsCommand::Record(Action::PasteLast));
+                        }
                         ui.end_row();
                     });
                 ui.small(if cfg!(target_os = "macos") {
@@ -404,6 +517,7 @@ fn panel_contents(
                     "示例：Ctrl+Shift+S、Alt+F3、F1"
                 });
                 ui.small(format!("当前生效：截图 {}；贴图 {}", labels.0, labels.1));
+                ui.small("点击录入后按下组合键，Esc 取消录入；设置窗口内暂停全局热键。");
                 ui.add_space(10.0);
                 ui.separator();
                 ui.strong("截图与保存");
@@ -464,11 +578,13 @@ fn panel_contents(
         }
         ui.horizontal(|ui| {
             if ui.button("恢复默认").clicked() {
-                *prefs = Preferences::default();
-                *autostart = false;
+                command = Some(SettingsCommand::RestoreDefaults);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("保存设置").clicked() {
+                if ui
+                    .add_enabled(recording.is_none(), egui::Button::new("保存设置"))
+                    .clicked()
+                {
                     command = Some(SettingsCommand::Save);
                 }
                 if ui.button("取消").clicked() {
@@ -512,11 +628,11 @@ pub fn render_preview(gfx: &GpuContext, directory: &Path) -> Result<()> {
             ..Default::default()
         };
         let mut full = ctx.run_ui(input.clone(), |ui| {
-            panel(ui, &mut prefs, &mut false, error, &labels);
+            panel(ui, &mut prefs, &mut false, error, &labels, None);
         });
         for _ in 0..2 {
             full.append(ctx.run_ui(input.clone(), |ui| {
-                panel(ui, &mut prefs, &mut false, error, &labels);
+                panel(ui, &mut prefs, &mut false, error, &labels, None);
             }));
         }
         export::rasterize(gfx, &ctx, full, width, height)?.save(directory.join(filename))?;
@@ -524,9 +640,42 @@ pub fn render_preview(gfx: &GpuContext, directory: &Path) -> Result<()> {
     Ok(())
 }
 
+fn recorded_key(code: KeyCode, state: ModifiersState) -> Result<HotKey> {
+    // winit 与 keyboard-types 的常用物理键使用相同的 W3C Code 名称。
+    let key = format!("{code:?}").parse::<HotKey>()?;
+    let mut modifiers = Modifiers::empty();
+    for (pressed, modifier) in [
+        (state.control_key(), Modifiers::CONTROL),
+        (state.alt_key(), Modifiers::ALT),
+        (state.shift_key(), Modifiers::SHIFT),
+        (state.super_key(), Modifiers::SUPER),
+    ] {
+        if pressed {
+            modifiers.insert(modifier);
+        }
+    }
+    hotkey::parse(&HotKey::new(Some(modifiers), key.key).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn records_physical_keys_and_modifiers() {
+        let key =
+            recorded_key(KeyCode::KeyA, ModifiersState::CONTROL | ModifiersState::ALT).unwrap();
+        assert_eq!(
+            hotkey::label(key),
+            crate::ui::shortcut_hint("Ctrl+Alt+A", "Ctrl+Option+A")
+        );
+        assert!(recorded_key(KeyCode::KeyA, ModifiersState::empty()).is_err());
+        assert_eq!(
+            recorded_key(KeyCode::F13, ModifiersState::empty())
+                .unwrap()
+                .key,
+            global_hotkey::hotkey::Code::F13
+        );
+    }
 
     #[test]
     fn settings_round_trip_and_editor_preferences_survive_restart() {
@@ -534,6 +683,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let store = SettingsStore {
             path: dir.join("设置.toml"),
+            migrate_legacy: false,
         };
         let mut prefs = Preferences {
             capture_hotkey: "Ctrl+Shift+F8".into(),

@@ -1,0 +1,118 @@
+name: Build release packages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+      - name: Check and test Windows
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) { throw 'Formatting failed' }
+          cargo clippy --locked --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+          if ($LASTEXITCODE -ne 0) { throw 'Clippy failed' }
+          cargo test --locked --workspace --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Build Windows packages
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/release-*/yingtie-*.zip
+            dist/release-*/yingtie-*.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+      - name: Check, test and package macOS
+        run: bash scripts/build-macos.sh --verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/yingtie-*-macos-arm64.zip
+          if-no-files-found: error
+
+  draft:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TARGET_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist/release-assets
+          merge-multiple: true
+      - name: Verify package names and write SHA256 checksums
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib, tomllib, zipfile
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['workspace']['package']['version']
+          assert os.environ['TARGET_TAG'] == 'v' + version
+          root = pathlib.Path('dist/release-assets')
+          for path in list(root.rglob('*')):
+              if path.is_file() and path.parent != root:
+                  destination = root / path.name
+                  assert not destination.exists(), f'Duplicate artifact: {path.name}'
+                  path.replace(destination)
+          for directory in sorted((p for p in root.rglob('*') if p.is_dir()), reverse=True):
+              directory.rmdir()
+          names = [f'yingtie-{version}-win64.zip', f'yingtie-{version}.exe', f'yingtie-{version}-macos-arm64.zip']
+          assert sorted(p.name for p in root.iterdir()) == sorted(names)
+          for name in names:
+              path = root / name
+              assert path.stat().st_size > 100_000
+              if name.endswith('.zip'):
+                  with zipfile.ZipFile(path) as archive:
+                      assert archive.testzip() is None
+          (root / 'SHA256SUMS.txt').write_text(''.join(
+              f'{hashlib.sha256((root / name).read_bytes()).hexdigest()}  {name}\n' for name in names))
+          PY
+      - name: Upload verified packages to a draft release
+        run: |
+          if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$TARGET_TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$TARGET_TAG" --verify-tag --draft --title "映贴 ${TARGET_TAG#v}" --notes-file "docs/releases/${TARGET_TAG#v}.md"
+          fi
+          gh release upload "$TARGET_TAG" dist/release-assets/* --clobber

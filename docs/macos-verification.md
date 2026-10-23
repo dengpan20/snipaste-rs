@@ -153,3 +153,9 @@ Windows 上的 Rust-only 检查显式设置 `SNIPASTE_MACOS_CHECK_ONLY=1`，平�
 独立设置验收命令为 `bash scripts/verify-macos.sh --settings`，无需屏幕录制权限。它还会生成 `sequence-ui.png` 和 `sequence-export.png`。本次将导出的数字字体和文字边缘处理统一到预览主题，修复了纯序号图片导出与预览不同的问题。
 
 系统保存面板与文件夹选择已实现 Mac / Windows 各自的原生接口；Windows 热键、保存和文件夹选择的实际桌面交互仍需 Windows 真机确认。
+
+### 合并 GitHub 0.2.5 后的 0.2.6 回归
+
+同步 `75740af` 的物理按键录入、快捷键安全校验、候选键预留及旧 JSON 配置读取，并保留本地设置与序号功能。macOS 合并后 161 项单元测试通过，Mac / Windows GNU 交叉 clippy 零告警。完整原生验收记录为 `dist/macos-verification/20261023-210959-54166/`，独立设置验收记录为 `dist/macos-verification/20261023-211005-54159/`，均为 PASS。设置取消与关闭后恢复热键也进入原生验收。
+
+新增 `.github/workflows/release.yml`，版本标签触发 Windows MSVC 和 macOS arm64 的测试、构建及压缩包校验，全部成功后上传 GitHub Release 草稿，供发布前确认产物。

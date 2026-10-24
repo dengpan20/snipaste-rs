@@ -167,6 +167,10 @@ pub struct SettingsStore {
 }
 
 impl SettingsStore {
+    pub fn save_counts_path(&self) -> PathBuf {
+        self.path.with_file_name("save-counts.json")
+    }
+
     pub fn for_user() -> Result<Self> {
         if let Some(path) = std::env::var_os("SNIPASTE_SETTINGS_PATH") {
             return Ok(Self {

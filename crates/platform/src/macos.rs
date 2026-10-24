@@ -50,7 +50,8 @@ extern "C" {
     fn sp_screen_permission_prompt(title: *const c_char, message: *const c_char);
     fn sp_configure_menu_bar_item(item: *mut c_void);
     fn sp_prepare_menu_bar_position(autosave_name: *const c_char);
-    fn sp_save_path(directory: *const c_char, jpeg: i32) -> *mut c_char;
+    fn sp_save_path(directory: *const c_char, filename: *const c_char) -> *mut c_char;
+    fn sp_local_date() -> *mut c_char;
     fn sp_choose_directory() -> *mut c_char;
     fn sp_chinese_font() -> *mut c_char;
     fn sp_memory(out: *mut NativeMemory) -> i32;
@@ -292,15 +293,29 @@ pub fn save_image_path_with_options(
     directory: Option<&std::path::Path>,
     jpeg: bool,
 ) -> Option<PathBuf> {
+    save_image_path_with_name(directory, jpeg, if jpeg { "截图.jpg" } else { "截图.png" })
+}
+
+pub fn save_image_path_with_name(
+    directory: Option<&std::path::Path>,
+    _jpeg: bool,
+    filename: &str,
+) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let directory = directory.and_then(|p| CString::new(p.as_os_str().as_bytes()).ok());
+    let filename = CString::new(filename).ok()?;
     let raw = unsafe {
         sp_save_path(
             directory.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
-            i32::from(jpeg),
+            filename.as_ptr(),
         )
     };
     take_path(raw)
+}
+
+pub fn local_date() -> Option<String> {
+    // SAFETY: the native bridge returns an owned, NUL-terminated UTF-8 string.
+    unsafe { take_string(sp_local_date()) }
 }
 
 pub fn choose_directory() -> Option<PathBuf> {

@@ -8,7 +8,37 @@ pub fn save_image_path_with_options(
     directory: Option<&Path>,
     jpeg: bool,
 ) -> Result<Option<PathBuf>, String> {
-    imp::save_image_path(directory, jpeg)
+    save_image_path_with_name(directory, jpeg, if jpeg { "截图.jpg" } else { "截图.png" })
+}
+
+pub fn save_image_path_with_name(
+    directory: Option<&Path>,
+    jpeg: bool,
+    filename: &str,
+) -> Result<Option<PathBuf>, String> {
+    imp::save_image_path(directory, jpeg, filename)
+}
+
+/// 系统本地日历日期，文件命名使用 YYYYMMDD，不按 UTC 分日。
+pub fn local_date() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let mut date = windows_sys::Win32::Foundation::SYSTEMTIME::default();
+        // SAFETY: date 是有效、可写的 SYSTEMTIME。
+        unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut date) };
+        Ok(format!(
+            "{:04}{:02}{:02}",
+            date.wYear, date.wMonth, date.wDay
+        ))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos::local_date().ok_or_else(|| "无法读取本地日期".into())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        Err("当前平台尚未实现本地日期读取".into())
+    }
 }
 
 pub fn choose_directory() -> Result<Option<PathBuf>, String> {
@@ -38,12 +68,14 @@ mod imp {
     pub fn save_image_path(
         directory: Option<&Path>,
         jpeg: bool,
+        filename: &str,
     ) -> Result<Option<PathBuf>, String> {
         use std::os::windows::ffi::OsStrExt;
         let mut file = [0u16; 32768];
-        let name: Vec<u16> = if jpeg { "截图.jpg" } else { "截图.png" }
-            .encode_utf16()
-            .collect();
+        let name: Vec<u16> = filename.encode_utf16().collect();
+        if name.len() >= file.len() || name.contains(&0) {
+            return Err("默认文件名无效或过长".into());
+        }
         file[..name.len()].copy_from_slice(&name);
         let filter: Vec<u16> = "PNG 图片\0*.png\0JPEG 图片\0*.jpg;*.jpeg\0\0"
             .encode_utf16()
@@ -119,8 +151,11 @@ mod imp {
     pub fn save_image_path(
         directory: Option<&Path>,
         jpeg: bool,
+        filename: &str,
     ) -> Result<Option<PathBuf>, String> {
-        Ok(crate::macos::save_image_path_with_options(directory, jpeg))
+        Ok(crate::macos::save_image_path_with_name(
+            directory, jpeg, filename,
+        ))
     }
     pub fn choose_directory() -> Result<Option<PathBuf>, String> {
         Ok(crate::macos::choose_directory())
@@ -134,6 +169,7 @@ mod imp {
     pub fn save_image_path(
         _directory: Option<&Path>,
         _jpeg: bool,
+        _filename: &str,
     ) -> Result<Option<PathBuf>, String> {
         Err("当前平台尚未实现保存对话框".into())
     }

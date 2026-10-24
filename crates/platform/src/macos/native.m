@@ -336,11 +336,22 @@ void sp_screen_permission_prompt(const char *title, const char *message) {
     }
 }
 
-char *sp_save_path(const char *directory, int jpeg) {
+char *sp_local_date(void) {
+    @autoreleasepool {
+        NSDateFormatter *formatter = [NSDateFormatter new];
+        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        formatter.calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+        formatter.timeZone = NSTimeZone.localTimeZone;
+        formatter.dateFormat = @"yyyyMMdd";
+        return strdup([formatter stringFromDate:NSDate.date].UTF8String);
+    }
+}
+
+char *sp_save_path(const char *directory, const char *filename) {
     @autoreleasepool {
         NSSavePanel *panel = NSSavePanel.savePanel;
         panel.title = @"保存截图";
-        panel.nameFieldStringValue = jpeg ? @"截图.jpg" : @"截图.png";
+        panel.nameFieldStringValue = [NSString stringWithUTF8String:filename];
         if (directory) panel.directoryURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:directory] isDirectory:YES];
         panel.canCreateDirectories = YES;
         panel.allowedContentTypes = @[[UTType typeWithIdentifier:@"public.png"],

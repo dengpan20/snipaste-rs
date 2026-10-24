@@ -50,11 +50,11 @@ Windows 0.2.3 在一台 3440 × 1440 显示器的测试电脑上：
 
 ## 平台与版本
 
-当前源码与正式发布包版本：**0.2.7**。下载见 [GitHub Releases](https://github.com/dengpan20/snipaste-rs/releases/latest)。
+当前源码与正式发布包版本：**0.2.8**。下载见 [GitHub Releases](https://github.com/dengpan20/snipaste-rs/releases/latest)。
 
 | 平台 | 当前状态 |
 |---|---|
-| Windows x64 | 已完成截图主流程和桌面贴图，单元测试与原生验收通过 |
+| Windows x64 | 截图主流程已有实机验收记录，本版贴图阴影与任务栏专项通过 |
 | macOS 14+ / Apple Silicon | 已在 Apple M3 / macOS 15.5 验证截图主流程、设置与序号标注；支持 macOS 14+ |
 | Intel Mac / Linux | 当前不提供支持 |
 
@@ -64,11 +64,11 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
 
 ### Windows：下载后运行
 
-1. 下载 [Windows 64 位便携包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/yingtie-0.2.7-win64.zip)，或 [独立程序](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/yingtie-0.2.7.exe)。
+1. 下载 [Windows 64 位便携包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.8/yingtie-0.2.8-win64.zip)，或 [独立程序](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.8/yingtie-0.2.8.exe)。
 2. 解压后运行 `snipaste-rs.exe`；独立程序可以直接运行，无需安装 Rust。
 3. 程序启动后驻留系统托盘。按 **F1** 开始截图，或从托盘菜单选择“截图”。
 
-运行新版前，请先从托盘退出旧版。发布包包含使用说明和文件校验；下载校验文件见 [SHA256SUMS.txt](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/SHA256SUMS.txt)。
+运行新版前，请先从托盘退出旧版。发布包包含使用说明和文件校验；下载校验文件见 [SHA256SUMS.txt](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.8/SHA256SUMS.txt)。
 
 **完成第一张截图：**
 
@@ -80,7 +80,7 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
 
 要求 **macOS 14 或更新版本**，以及 Apple Silicon 芯片。
 
-1. 下载 [Mac arm64 应用包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.7/yingtie-0.2.7-macos-arm64.zip)。
+1. 下载 [Mac arm64 应用包](https://github.com/dengpan20/snipaste-rs/releases/download/v0.2.8/yingtie-0.2.8-macos-arm64.zip)。
 2. 解压后将 **映贴.app** 移入“应用程序”，然后打开；程序驻留顶部菜单栏。
 3. 首次截图时，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中允许映贴，再退出并重新打开。
 4. 按 **⌘⇧2** → 拖动框选 → Enter 确认 → 在其他应用中按 **⌘V** 粘贴。
@@ -104,10 +104,10 @@ Mac 每次截图覆盖**发起截图时鼠标所在的显示器**，暂不支持
    bash scripts/build-macos.sh
    ```
 
-4. 将生成的 `dist/macos-0.2.7/映贴.app` 移入“应用程序”，然后打开。顶部菜单栏仅显示截图图标，点击可打开截图、贴图、权限设置、自启、设置、操作说明、关于和退出菜单。
+4. 将生成的 `dist/macos-0.2.8/映贴.app` 移入“应用程序”，然后打开。顶部菜单栏仅显示截图图标，点击可打开截图、贴图、权限设置、自启、设置、操作说明、关于和退出菜单。
 5. 按 **⌘⇧2** 或从菜单栏选择“截图”。权限提示中点击 **打开权限设置** 可直接跳转，在 **系统设置 → 隐私与安全性 → 屏幕录制 / 屏幕与系统音频录制** 中授权，再退出并重新打开应用。
 
-构建需要 macOS 14+ SDK，首次编译会下载依赖。脚本同时生成 `dist/yingtie-0.2.7-macos-arm64.zip`，本机构建默认使用固定的本机签名证书；当前版本由 CI 构建校验；已有真机验收记录见 Mac 指南，Developer ID 签名和 Apple 公证尚未执行。更多权限、签名和验收步骤见 [Mac 指南](docs/macos.md)。
+构建需要 macOS 14+ SDK，首次编译会下载依赖。脚本同时生成 `dist/yingtie-0.2.8-macos-arm64.zip`，本机构建默认使用固定的本机签名证书；当前版本由 CI 构建校验；已有真机验收记录见 Mac 指南，Developer ID 签名和 Apple 公证尚未执行。更多权限、签名和验收步骤见 [Mac 指南](docs/macos.md)。
 
 需要同时检查代码和运行单元测试时，使用 `bash scripts/build-macos.sh --verify`。桌面功能验收和三轮内存诊断分别使用 `bash scripts/verify-macos.sh`、`bash scripts/verify-macos.sh --memory`，验收应用需要自己的屏幕录制权限。
 
@@ -123,7 +123,7 @@ cargo build --locked --release -p snipaste-app --target x86_64-pc-windows-msvc
 
 现有 Windows 验收使用 GNU 工具链；使用 MinGW-w64 / w64devkit 的配置步骤见 [构建指南](docs/build.md)。
 
-生成发布包可运行 `powershell -File scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc`（GNU 环境改为 `x86_64-pc-windows-gnu`）。脚本要求源代码已提交且工作区干净，输出便携包、独立程序及带提交编号的构建信息到 `dist/release-0.2.7/`。
+生成发布包可运行 `powershell -File scripts/package-windows.ps1 -Target x86_64-pc-windows-msvc`（GNU 环境改为 `x86_64-pc-windows-gnu`）。脚本要求源代码已提交且工作区干净，输出便携包、独立程序及带提交编号的构建信息到 `dist/release-0.2.8/`。
 
 ## 快捷键
 
@@ -152,12 +152,15 @@ F1–F24 / PrintScreen 可单独使用，普通按键需搭配 Ctrl、Alt（Mac 
 
 **贴图操作：**拖动移动；滚轮缩放；Shift+滚轮调整透明度；右键打开更多操作；Esc 或双击关闭。
 
+贴图带柔和阴影，获得焦点时显示浅蓝色阴影；Windows 贴图窗口不在任务栏中显示图标。
+
 ## 设置与序号标注
 
 Windows 从托盘菜单、Mac 从菜单栏图标打开 **设置…**。修改后点击 **保存设置** 立即应用，取消或关闭窗口会放弃未保存的修改。
 
 - **快捷键：**点击“录入”后按下组合键，或输入 `Ctrl+Shift+S`、`Command+Shift+2`、`F1` 等格式，留空使用当前平台默认键；设置打开期间暂停全局热键，关闭后恢复。相同或被占用的自定义快捷键会提示错误并保留原快捷键。
 - **保存：**选择默认文件夹与 PNG / JPEG 格式；每次保存仍可在系统保存窗口中修改文件名和格式。
+- **默认文件名：**`截图-20261024-1.png`，按系统本地日期和当天成功保存次数命名；每天从 1 开始，重启后接着累计，取消或保存失败不占次数。截图与贴图、PNG 与 JPEG 共用当天计数。
 - **标注：**设置颜色、笔宽、文字字号和序号大小。开启“记住上次使用”后，截图结束时保存颜色、大小、填充、笔刷和取色格式；关闭后，每次截图使用设置面板中保存的值。
 - **序号：**框选后按 **N**，在选区内依次点击添加 1、2、3；切换 **V** 后拖动，按 Delete 删除。支持撤销与重做，每次新截图从 1 开始；删除中间序号不会重新排列其他数字。
 

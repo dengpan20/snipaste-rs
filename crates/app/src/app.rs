@@ -32,8 +32,11 @@ use crate::editor::{Editor, QrResult};
 use crate::gfx::{GpuContext, SurfaceWindow};
 use crate::hotkey::{Action, Hotkeys};
 use crate::pin::{PinCommand, PinWindow};
+use crate::save::save_image;
+#[cfg(debug_assertions)]
+use crate::settings::ImageFormat;
 use crate::settings::{
-    AnnotationPreferences, ImageFormat, Preferences, SettingsCommand, SettingsStore, SettingsWindow,
+    AnnotationPreferences, Preferences, SettingsCommand, SettingsStore, SettingsWindow,
 };
 use crate::tray::{MenuAction, Tray};
 use crate::ui::{self, Command};
@@ -239,6 +242,34 @@ impl App {
         }
 
         self.started = true;
+        #[cfg(debug_assertions)]
+        if let Some(directory) = std::env::var_os("SNIPASTE_VERIFY_PINS_DIR") {
+            let directory = std::path::Path::new(&directory);
+            std::fs::create_dir_all(directory)?;
+            let image = image::RgbaImage::from_fn(400, 240, |x, y| {
+                image::Rgba(if (x / 20 + y / 20) % 2 == 0 {
+                    [225, 235, 245, 255]
+                } else {
+                    [110, 165, 210, 255]
+                })
+            });
+            self.open_pin(event_loop, image, Pos::new(400.0, 240.0));
+            let gfx = self.gfx.as_ref().context("缺少贴图 GPU")?;
+            let pin = self.pins.first_mut().context("贴图创建失败")?;
+            #[cfg(windows)]
+            anyhow::ensure!(
+                pin.surface.config.alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied,
+                "贴图窗口未使用透明合成"
+            );
+            pin.verify_appearance(gfx, directory)?;
+            pin.event(gfx, &WindowEvent::RedrawRequested);
+            std::fs::write(directory.join("pin-result.txt"), "PASS: native pin creation, transparent composition, hidden taskbar styles after focus changes, focused blue shadow, inactive neutral shadow, original pixels at 100/125/200 percent DPI\n")?;
+            if std::env::var_os("SNIPASTE_PREVIEW_PINS").is_none() {
+                self.pins.clear();
+                event_loop.exit();
+            }
+            return Ok(());
+        }
         #[cfg(debug_assertions)]
         if let Some(dir) = std::env::var_os("SNIPASTE_VERIFY_SETTINGS_DIR") {
             self.verify_settings(event_loop, std::path::Path::new(&dir))?;
@@ -1875,6 +1906,7 @@ impl App {
             anyhow::ensure!(!self.pins.is_empty(), "贴图窗口创建失败");
             if let Some(gfx) = self.gfx.as_ref() {
                 self.pins[0].event(gfx, &WindowEvent::RedrawRequested);
+                self.pins[0].verify_appearance(gfx, dir)?;
                 self.pins[0].verify_menu_fonts(gfx)?;
             }
             self.pins.clear();
@@ -2162,30 +2194,4 @@ fn snap_disabled() -> bool {
         Ok(v) => !v.is_empty() && v != "0",
         Err(_) => false,
     }
-}
-
-fn save_image(image: &image::RgbaImage, preferences: &Preferences) -> Result<bool> {
-    let directory = (!preferences.save_directory.is_empty())
-        .then(|| std::path::Path::new(&preferences.save_directory));
-    let Some(mut path) = snipaste_platform::dialog::save_image_path_with_options(
-        directory,
-        preferences.image_format == ImageFormat::Jpeg,
-    )
-    .map_err(anyhow::Error::msg)?
-    else {
-        return Ok(false);
-    };
-    if path.extension().is_none() {
-        path.set_extension(preferences.image_format.extension());
-    }
-    let format = image::ImageFormat::from_path(&path)?;
-    if format == image::ImageFormat::Jpeg {
-        use image::buffer::ConvertBuffer;
-        let rgb: image::RgbImage = image.convert();
-        rgb.save_with_format(&path, format)?;
-    } else {
-        image.save_with_format(&path, format)?;
-    }
-    log::info!("截图已保存：{}", path.display());
-    Ok(true)
 }

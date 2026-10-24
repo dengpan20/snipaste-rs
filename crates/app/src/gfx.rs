@@ -60,6 +60,13 @@ impl GpuContext {
         // 本项目的目标平台是 Windows / macOS，display 字段用不上。
         let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
         descriptor.backends = backends;
+        #[cfg(windows)]
+        {
+            // HWND swapchains only support opaque surfaces. DirectComposition
+            // preserves the pin's transparent margin and soft shadow alpha.
+            descriptor.backend_options.dx12.presentation_system =
+                wgpu::Dx12SwapchainKind::DxgiFromVisual;
+        }
         let instance = wgpu::Instance::new(descriptor);
 
         let surface = instance
@@ -147,7 +154,7 @@ pub struct SurfaceWindow {
     pub painter: Renderer,
     /// 本窗口覆盖的显示器在 VSS 中的原点与缩放。
     pub viewport: snipaste_render::Viewport,
-    /// 清屏色。透明遮罩用全透明，贴图窗口将来会改成不透明。
+    /// 清屏色。贴图的透明边距和阴影需要全透明。
     pub clear: wgpu::Color,
 }
 

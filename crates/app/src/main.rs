@@ -30,6 +30,7 @@ mod hotkey;
 mod memory_profile;
 mod pin;
 mod qr;
+mod save;
 #[cfg(any(target_os = "macos", test))]
 mod screen_permission;
 mod settings;

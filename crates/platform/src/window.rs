@@ -55,6 +55,44 @@ pub fn disable_transitions(native_handle: isize) {
     let _ = native_handle;
 }
 
+/// 贴图是桌面工具窗口；在显示前设置，避免激活或 Explorer 重启后出现任务栏按钮。
+#[cfg(windows)]
+pub fn configure_pin_window(native_handle: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, SWP_FRAMECHANGED,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+    // SAFETY: 调用方传入主线程上仍存活的 HWND；只修改扩展样式，不转移所有权。
+    unsafe {
+        let hwnd = native_handle as _;
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            (style & !(WS_EX_APPWINDOW as isize)) | WS_EX_TOOLWINDOW as isize,
+        );
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+#[cfg(all(windows, debug_assertions))]
+pub fn pin_window_hides_taskbar(native_handle: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+    // SAFETY: 调用方传入当前仍存活的贴图 HWND；仅查询扩展样式。
+    let style = unsafe { GetWindowLongPtrW(native_handle as _, GWL_EXSTYLE) };
+    style & WS_EX_TOOLWINDOW as isize != 0 && style & WS_EX_APPWINDOW as isize == 0
+}
+
 /// 等待桌面合成完成，隐藏后再释放底图或捕获下一次桌面。
 pub fn flush_compositor() {
     #[cfg(target_os = "macos")]
